@@ -68,3 +68,27 @@ def replace(value, args):
         return str(value).replace(old.strip(), new.strip())
     except:
         return value
+
+@register.filter
+def divide_by(value, arg):
+    try:
+        return float(value) / float(arg)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0
+
+@register.filter
+def unpaid_only(payments):
+    """Filter a payment queryset/list to only unpaid ones."""
+    try:
+        return [p for p in payments if not p.is_paid]
+    except Exception:
+        return []
+
+@register.filter
+def add_days(value, days):
+    """Add N days to a date/datetime value."""
+    try:
+        from datetime import timedelta
+        return value + timedelta(days=int(days))
+    except Exception:
+        return value

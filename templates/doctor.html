@@ -9,16 +9,27 @@
 <a href="{% url 'doctor_history' %}" class="sb-link"><span class="sb-link-ico">📂</span>History</a>
 {% endblock %}
 {% block topbar_widgets %}
-<div style="display:flex;align-items:center;gap:8px">
-  {% if doctor.consulting_room %}<span class="badge b-teal">{{ doctor.consulting_room.display_name }}</span>{% endif %}
+<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+  {% if doctor.consulting_room %}<span class="badge b-teal" style="display:none;display:inline-flex" id="roomBadge">{{ doctor.consulting_room.display_name }}</span>{% endif %}
   <button class="btn btn-ghost btn-sm" onclick="C.modal('roomModal')">🚪 Room</button>
-  <div style="display:flex;align-items:center;gap:6px">
-    <span class="txt-xs txt-dim">Available</span>
-    <label class="tog"><input type="checkbox" id="togAvail" {% if doctor.is_available %}checked{% endif %} onchange="toggleAvail(this)"><div class="tog-track"></div><div class="tog-dot"></div></label>
-  </div>
+  <label class="tog" title="Toggle availability"><input type="checkbox" id="togAvail" {% if doctor.is_available %}checked{% endif %} onchange="toggleAvail(this)"><div class="tog-track"></div><div class="tog-dot"></div></label>
 </div>
 {% endblock %}
 {% block content %}
+<style>
+/* ── Doctor dashboard mobile ── */
+.doc-actions{display:flex;gap:5px;align-items:center;flex-shrink:0}
+.vc-h{flex-wrap:wrap}
+@media(max-width:700px){
+  .doc-actions{width:100%;overflow-x:auto;padding:8px 12px 10px;gap:5px;scrollbar-width:none;border-top:1px solid var(--border);margin-top:4px}
+  .doc-actions::-webkit-scrollbar{display:none}
+  .doc-actions .btn{flex-shrink:0;white-space:nowrap}
+  .vc-h{cursor:pointer}
+  /* Keep vc-h top row from wrapping weirdly */
+  .vc-h > .vc-num{align-self:flex-start;margin-top:2px}
+  .vc-h > .vc-info{flex:1;min-width:0}
+}
+</style>
 
 {% if not visits %}
 <div class="card"><div style="padding:52px;text-align:center">
@@ -43,14 +54,14 @@
         {% if v.vitals %}<span>·</span><span style="color:var(--teal)">✓ vitals</span>{% endif %}
       </div>
     </div>
-    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
-      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();viewPatient({{ v.patient.id }})">👤 Profile</button>
-      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openNote({{ v.id }})">📝 Note</button>
-      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openLab({{ v.id }})">🔬 Lab</button>
-      <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openRx({{ v.id }})">💊 Rx</button>
-      <button class="btn btn-blue btn-sm" onclick="event.stopPropagation();openAdmit({{ v.id }})">🛏 Admit</button>
-      <button class="btn btn-purple btn-sm" onclick="event.stopPropagation();openSurg({{ v.id }})">⚕ Surgery</button>
-      <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();endVisit({{ v.id }},this)">End Visit</button>
+    <div class="doc-actions" onclick="event.stopPropagation()">
+      <button class="btn btn-ghost btn-sm" onclick="viewPatient({{ v.patient.id }})">👤 Profile</button>
+      <button class="btn btn-ghost btn-sm" onclick="openNote({{ v.id }})">📝 Note</button>
+      <button class="btn btn-ghost btn-sm" onclick="openLab({{ v.id }})">🔬 Lab</button>
+      <button class="btn btn-primary btn-sm" onclick="openRx({{ v.id }})">💊 Rx</button>
+      <button class="btn btn-blue btn-sm" onclick="openAdmit({{ v.id }})">🛏 Admit</button>
+      <button class="btn btn-purple btn-sm" onclick="openSurg({{ v.id }})">⚕ Surgery</button>
+      <button class="btn btn-danger btn-sm" onclick="endVisit({{ v.id }},this)">✕ End</button>
     </div>
   </div>
   <div class="vc-body hidden" id="vb{{ v.id }}">
@@ -68,11 +79,13 @@
     {% if v.vitals.nurse_note %}<div class="alert a-info mt-1">{{ v.vitals.nurse_note }}</div>{% endif %}
     {% endif %}
     {% if v.doctor_notes.all %}<div class="sl">Notes</div><div class="tl">{% for n in v.doctor_notes.all %}<div class="tl-item"><div class="tl-dot"></div><div class="tl-body"><div class="tl-text">{{ n.note }}</div><div class="tl-time">{{ n.created_at|date:"d M, H:i" }}</div></div></div>{% endfor %}</div>{% endif %}
-    {% if v.prescriptions.all %}<div class="sl">Prescriptions</div>{% for rx in v.prescriptions.all %}<div class="drug-row"><div class="drug-name">Rx #{{ rx.id }} — {{ rx.drugs.count }} drug(s)<span class="drug-sub">₦{{ rx.total_price|floatformat:0 }}</span></div><span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}">{{ rx.get_status_display }}</span></div>{% endfor %}{% endif %}
+    {% if v.prescriptions.all %}<div class="sl">Prescriptions</div>{% for rx in v.prescriptions.all %}<div class="drug-row" style="flex-direction:column;align-items:flex-start;gap:3px"><div style="display:flex;align-items:center;justify-content:space-between;width:100%"><div class="drug-name" style="font-size:.8rem">Rx #{{ rx.id }} <span class="txt-muted" style="font-weight:400">₦{{ rx.total_price|floatformat:0 }}</span>{% if rx.doctor_note|slice:":19" == "Surgery drugs for:" %} <span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">⚕ FOR SURGERY</span>{% endif %}</div><div style="display:flex;align-items:center;gap:5px"><span class="txt-xs txt-muted">{{ rx.created_at|date:"d M, H:i" }}</span><span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}">{{ rx.get_status_display }}</span></div></div>{% for item in rx.drugs.all %}<div class="txt-xs txt-dim" style="margin-left:4px">• {{ item.drug.name }}{% if item.drug.strength %} <span class="txt-muted">({{ item.drug.strength }})</span>{% endif %}{% if item.drug.dosage_form %} <span class="txt-muted">{{ item.drug.dosage_form }}</span>{% endif %} ×{{ item.quantity }}{% if item.dosage %} — {{ item.dosage }}{% endif %}{% if item.surgery %} <span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 4px;border-radius:3px;font-size:.58rem;font-weight:700">⚕ surgery</span>{% endif %}</div>{% endfor %}</div>{% endfor %}{% endif %}
     {% if v.lab_requests.all %}<div class="sl">Lab Requests</div>{% for lr in v.lab_requests.all %}
     <div style="margin-bottom:8px;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-bottom:5px">
         <span style="font-weight:700;font-size:.81rem">Lab #{{ lr.id }} <span class="txt-muted" style="font-weight:400">— {{ lr.tests.count }} test(s) · ₦{{ lr.total_price|floatformat:0 }}</span></span>
+        {% if lr.doctor_note|slice:":12" == "Pre-surgery" %}<span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">⚕ FOR SURGERY</span>{% elif lr.doctor_note == "Ward patient lab request" %}<span style="background:rgba(14,165,160,.1);color:var(--teal);padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">🛏 ADMISSION</span>{% endif %}
+        <span class="txt-xs txt-muted" style="margin-left:auto">{{ lr.created_at|date:"d M, H:i" }}</span>
         <span class="badge {% if lr.status == 'completed' %}b-teal{% elif lr.status == 'in_progress' %}b-blue{% else %}b-amber{% endif %}">{{ lr.get_status_display }}</span>
       </div>
       {% for t in lr.tests.all %}
@@ -86,6 +99,30 @@
       {% endfor %}
     </div>
     {% endfor %}{% endif %}
+    {% if v.surgeries.all %}
+    <div class="sl">Surgery</div>
+    {% for s in v.surgeries.all %}
+    <div style="margin-bottom:7px;padding:9px 12px;background:{% if s.status == 'draft' %}var(--amber-glow){% elif s.status == 'patient_reviewed' %}var(--teal-glow){% elif s.status == 'underway' %}rgba(124,58,237,.08){% elif s.status == 'pending' %}var(--surface2){% else %}var(--surface2){% endif %};border:1px solid {% if s.status == 'draft' %}var(--amber-border){% elif s.status == 'patient_reviewed' %}var(--teal-border){% elif s.status == 'underway' %}rgba(124,58,237,.3){% else %}var(--border){% endif %};border-radius:var(--r-sm)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span style="font-weight:700;font-size:.82rem">{{ s.procedure_name }}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="badge {% if s.status == 'paid' or s.status == 'completed' %}b-teal{% elif s.status == 'patient_reviewed' %}b-blue{% elif s.status == 'draft' %}b-amber{% elif s.status == 'underway' %}" style="background:rgba(124,58,237,.15);color:#7c3aed;border:1px solid rgba(124,58,237,.3){% elif s.status == 'pending' %}b-gray{% elif s.status == 'ended' %}b-teal{% else %}b-gray{% endif %}">{{ s.get_status_display }}</span>
+          {% if s.status == 'pending' %}
+          <button class="btn btn-xs" style="background:rgba(124,58,237,.12);color:#7c3aed;border:1px solid rgba(124,58,237,.3)" onclick="toggleSurgery({{ s.id }},this)">▶ Start Surgery</button>
+          {% elif s.status == 'underway' %}
+          <button class="btn btn-xs btn-teal" onclick="toggleSurgery({{ s.id }},this)">✓ End Surgery</button>
+          {% endif %}
+        </div>
+      </div>
+      {% if s.surgery_fee %}<div class="txt-xs txt-dim">Fee: ₦{{ s.surgery_fee|floatformat:0 }}{% if s.surgery_fee_parts > 1 %} ({{ s.surgery_fee_parts }} parts){% endif %}{% if s.anesthesia_type %} · {{ s.anesthesia_type }}{% endif %}</div>{% endif %}
+      {% if s.surgery_drugs.all %}<div class="txt-xs txt-muted mt-1">Drugs: {% for sd in s.surgery_drugs.all %}{{ sd.drug_name }}{% if sd.drug.strength %} ({{ sd.drug.strength }}){% endif %}{% if sd.drug.dosage_form %} {{ sd.drug.dosage_form }}{% endif %} ×{{ sd.quantity }}{% if sd.dosage %} — {{ sd.dosage }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+      {% if s.surgery_labs.all %}<div class="txt-xs txt-muted">Labs: {% for sl in s.surgery_labs.all %}{{ sl.test_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+      {% if s.admission %}<div class="txt-xs txt-muted">Post-op: {{ s.admission.get_ward_display }} Bed {{ s.admission.bed_number }}</div>{% endif %}
+      {% if s.scheduled_at %}<div class="txt-xs txt-muted">Started: {{ s.scheduled_at|date:"d M H:i" }}</div>{% endif %}
+      {% if s.completed_at %}<div class="txt-xs txt-muted">Ended: {{ s.completed_at|date:"d M H:i" }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 </div>
 {% endfor %}
@@ -181,6 +218,15 @@
       <div class="fg"><label class="lbl">Total ₦</label><input class="inp" id="admTotal" readonly style="background:var(--surface3)"></div>
     </div>
     <div class="fg"><label class="lbl">Admission Reason <span style="color:var(--red)">*</span></label><textarea class="inp" id="admReason" rows="2" placeholder="Diagnosis or reason for admission…"></textarea></div>
+    <div class="sl">Payment Plan</div>
+    <div class="g2">
+      <div class="fg"><label class="lbl">Discount ₦ <span class="txt-muted" style="text-transform:none;font-weight:400">(optional)</span></label><input class="inp" type="number" id="admDiscount" placeholder="0" min="0" oninput="calcAdmPayable()"></div>
+      <div class="fg"><label class="lbl">Payable ₦</label><input class="inp" id="admPayable" readonly style="background:var(--surface3)"></div>
+    </div>
+    <div class="alert a-info" style="font-size:.78rem;padding:9px 12px">
+      💡 Payment is split <b>per day</b> — one instalment per estimated day. Each instalment = daily fee. Patient can be admitted after the first instalment is paid.
+    </div>
+    <div id="admPartsList"></div>
     <div class="sl">Initial Medication (optional)</div>
     <div class="fg">
       <div class="search-wrap"><input class="inp" id="admDrugInp" placeholder="Search drug to add…" autocomplete="off"><div class="search-drop" id="admDrugDrop"></div></div>
@@ -197,13 +243,40 @@
     <input type="hidden" id="surgVid">
     <div class="g2">
       <div class="fg span2"><label class="lbl">Procedure Name <span style="color:var(--red)">*</span></label><input class="inp" id="surgName" placeholder="e.g. Appendectomy, Laparotomy…"></div>
-      <div class="fg"><label class="lbl">Surgery Fee ₦ <span style="color:var(--red)">*</span></label><input class="inp" type="number" id="surgFee" placeholder="0.00"></div>
       <div class="fg"><label class="lbl">Anesthesia Type</label><input class="inp" id="surgAnes" placeholder="General / Local / Spinal / Epidural"></div>
       <div class="fg span2"><label class="lbl">Purpose & Benefits</label><textarea class="inp" id="surgPurpose" rows="2" placeholder="Why this procedure is recommended…"></textarea></div>
       <div class="fg span2"><label class="lbl">Known Risks</label><textarea class="inp" id="surgRisks" rows="2" placeholder="Possible complications and risks…"></textarea></div>
       <div class="fg span2"><label class="lbl">Alternative Treatments</label><textarea class="inp" id="surgAlts" rows="1" placeholder="Other treatment options considered…"></textarea></div>
       <div class="fg span2"><label class="lbl">Post-Op Instructions</label><textarea class="inp" id="surgPostop" rows="2" placeholder="Recovery instructions for patient…"></textarea></div>
     </div>
+
+    <div class="sl">Required Drugs <span class="txt-muted" style="text-transform:none;font-weight:400;letter-spacing:0;font-size:.72rem">(optional — patient pays in full)</span></div>
+    <div class="fg">
+      <div class="search-wrap"><input class="inp" id="surgDrugInp" placeholder="Search drug to add…" autocomplete="off"><div class="search-drop" id="surgDrugDrop"></div></div>
+    </div>
+    <div id="surgDrugList"></div>
+
+    <div class="sl">Required Lab Tests <span class="txt-muted" style="text-transform:none;font-weight:400;letter-spacing:0;font-size:.72rem">(optional — patient pays in full)</span></div>
+    <div class="fg">
+      <div class="search-wrap"><input class="inp" id="surgTestInp" placeholder="Search test to add…" autocomplete="off"><div class="search-drop" id="surgTestDrop"></div></div>
+    </div>
+    <div id="surgTestList"></div>
+
+    <div class="sl">Surgery Fee & Payment Plan</div>
+    <div class="g2">
+      <div class="fg"><label class="lbl">Surgery Fee ₦ <span style="color:var(--red)">*</span></label><input class="inp" type="number" id="surgFee" placeholder="0.00" oninput="calcSurgTotal()"></div>
+      <div class="fg"><label class="lbl">Split into parts <span class="txt-muted" style="text-transform:none;font-weight:400">(1–5)</span></label>
+        <select class="inp" id="surgParts" onchange="renderSurgParts()">
+          <option value="1">1 — Full payment</option>
+          <option value="2">2 parts</option>
+          <option value="3">3 parts</option>
+          <option value="4">4 parts</option>
+          <option value="5">5 parts</option>
+        </select>
+      </div>
+    </div>
+    <div id="surgPartsList"></div>
+
     <div class="sl">Authorisations</div>
     <div class="g2" style="gap:7px">
       <label style="display:flex;align-items:center;gap:7px;font-size:.8rem;cursor:pointer"><input type="checkbox" id="sAddProc"> Additional procedures if necessary</label>
@@ -211,7 +284,8 @@
       <label style="display:flex;align-items:center;gap:7px;font-size:.8rem;cursor:pointer"><input type="checkbox" id="sResidents"> Residents may participate</label>
       <label style="display:flex;align-items:center;gap:7px;font-size:.8rem;cursor:pointer"><input type="checkbox" id="sPhoto"> Photography permitted</label>
     </div>
-    <div class="sl">Post-Surgery Admission</div>
+
+    <div class="sl">Post-Surgery Admission <span class="txt-muted" style="text-transform:none;font-weight:400;letter-spacing:0;font-size:.72rem">(optional)</span></div>
     <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
       <label class="tog"><input type="checkbox" id="surgAdmCb" onchange="document.getElementById('surgAdmFields').classList.toggle('hidden',!this.checked)"><div class="tog-track"></div><div class="tog-dot"></div></label>
       <span class="txt-sm fw-6">Admit patient to ward after surgery</span>
@@ -235,6 +309,15 @@
         <div class="fg"><label class="lbl">Est. Days</label><input class="inp" type="number" id="surgAdmDays" value="1" oninput="calcSurgAdmTotal()"></div>
         <div class="fg"><label class="lbl">Total ₦</label><input class="inp" id="surgAdmTotal" readonly style="background:var(--surface3)"></div>
       </div>
+      <div class="g2">
+        <div class="fg"><label class="lbl">Admission Discount ₦</label><input class="inp" type="number" id="surgAdmDiscount" placeholder="0" min="0" oninput="calcSurgAdmPayable()"></div>
+        <div class="fg"><label class="lbl">Payable ₦</label><input class="inp" id="surgAdmPayable" readonly style="background:var(--surface3)"></div>
+      </div>
+      <div class="fg"><label class="lbl">Admission instalments <span class="txt-muted" style="text-transform:none;font-weight:400">(auto from days)</span></label>
+        <input class="inp" id="surgAdmParts" readonly style="background:var(--surface3)" value="1" placeholder="Auto-set from Est. Days">
+        <div class="txt-xs txt-muted mt-1" id="surgAdmPartsHint">1 instalment (= 1 day)</div>
+      </div>
+      <div id="surgAdmPartsList"></div>
     </div>
   </div>
   <div class="modal-f"><button class="btn btn-ghost btn-sm" onclick="C.modal('surgModal',false)">Cancel</button><button class="btn btn-purple btn-sm" onclick="submitSurg()">Send to Patient →</button></div>
@@ -259,7 +342,7 @@ async function toggleAvail(el){
 }
 async function selectRoom(id,card){
   const r=await C.post('/api/select-room/',{room_id:String(id===''?'':id)});
-  if(r.status==='ok'){C.toast('Room updated','ok');C.modal('roomModal',false);setTimeout(()=>location.reload(),300);}
+  if(r.status==='ok'){C.toast('Room updated','ok');C.modal('roomModal',false);location.reload();}
   else C.toast(r.error,'err');
 }
 
@@ -270,24 +353,23 @@ async function submitNote(){
   const note=document.getElementById('noteText').value.trim();
   if(!note){C.toast('Enter a note','err');return;}
   const r=await C.post(`/records/api/note/${vid}/`,{note});
-  if(r.status==='ok'){C.toast('Note saved','ok');C.modal('noteModal',false);setTimeout(()=>location.reload(),400);}
+  if(r.status==='ok'){C.toast('Note saved','ok');C.modal('noteModal',false);location.reload();}
   else C.toast(r.error,'err');
 }
 
 // ── LAB ──
-let labTests=[], labSearchInited=false;
+let labTests=[], _labSearch=null;
 function openLab(vid){
   labTests=[];renderLab();
   document.getElementById('labVid').value=vid;
   document.getElementById('labNote').value='';
   C.modal('labModal');
-  if(!labSearchInited){
-    labSearchInited=true;
-    mkTestSearch('labTestInp','labTestDrop',t=>{
+  if(!_labSearch){
+    _labSearch=mkTestSearch('labTestInp','labTestDrop',t=>{
       if(!labTests.find(x=>x.id===t.id)){labTests.push({...t,note:''});renderLab();}
     });
   }
-  setTimeout(()=>document.getElementById('labTestInp')?.dispatchEvent(new Event('focus')),100);
+  setTimeout(()=>_labSearch&&_labSearch.open(),80);
 }
 function renderLab(){
   document.getElementById('labList').innerHTML=labTests.length?labTests.map((t,i)=>`
@@ -306,24 +388,23 @@ async function submitLab(){
   labTests.forEach(t=>{fd.append('test_ids[]',t.id);fd.append('test_notes[]',t.note||'');});
   const r=await fetch(`/records/api/order-lab/${vid}/`,{method:'POST',body:fd});
   const res=await r.json();
-  if(res.status==='ok'){C.toast('Lab ordered!','ok');C.modal('labModal',false);setTimeout(()=>location.reload(),400);}
+  if(res.status==='ok'){C.toast('Lab ordered!','ok');C.modal('labModal',false);location.reload();}
   else C.toast(res.error,'err');
 }
 
 // ── PRESCRIPTION ──
-let rxDrugs=[], rxSearchInited=false;
+let rxDrugs=[], _rxSearch=null;
 function openRx(vid){
   rxDrugs=[];renderRx();
   document.getElementById('rxVid').value=vid;
   document.getElementById('rxNote').value='';
   C.modal('rxModal');
-  if(!rxSearchInited){
-    rxSearchInited=true;
-    mkDrugSearch('rxDrugInp','rxDrugDrop',d=>{
+  if(!_rxSearch){
+    _rxSearch=mkDrugSearch('rxDrugInp','rxDrugDrop',d=>{
       if(!rxDrugs.find(x=>x.id===d.id)){rxDrugs.push({...d,qty:1,dosage:'',inj_days:'',inj_times:''});renderRx();}
     });
   }
-  setTimeout(()=>document.getElementById('rxDrugInp')?.dispatchEvent(new Event('focus')),100);
+  setTimeout(()=>_rxSearch&&_rxSearch.open(),80);
 }
 function renderRx(){
   document.getElementById('rxList').innerHTML=rxDrugs.length?rxDrugs.map((d,i)=>`
@@ -348,7 +429,7 @@ async function submitRx(){
   });
   const r=await fetch(`/records/api/prescribe/${vid}/`,{method:'POST',body:fd});
   const res=await r.json();
-  if(res.status==='ok'){C.toast('Prescription sent!','ok');C.modal('rxModal',false);setTimeout(()=>location.reload(),400);}
+  if(res.status==='ok'){C.toast('Prescription sent!','ok');C.modal('rxModal',false);location.reload();}
   else C.toast(res.error,'err');
 }
 
@@ -361,10 +442,35 @@ async function endVisit(vid,btn){
 
 // ── ADMISSION ──
 let admDrugs=[];
-function calcAdmTotal(){const f=+document.getElementById('admFee')?.value||0;const d=+document.getElementById('admDays')?.value||1;document.getElementById('admTotal').value=(f*d).toFixed(0);}
-function calcSurgAdmTotal(){const f=+document.getElementById('surgAdmFee')?.value||0;const d=+document.getElementById('surgAdmDays')?.value||1;document.getElementById('surgAdmTotal').value=(f*d).toFixed(0);}
 
-let admSearchInited=false;
+function calcAdmTotal(){
+  const f=+document.getElementById('admFee')?.value||0;
+  const d=+document.getElementById('admDays')?.value||1;
+  document.getElementById('admTotal').value=(f*d).toFixed(0);
+  calcAdmPayable();
+}
+function calcAdmPayable(){
+  const total=+document.getElementById('admTotal')?.value||0;
+  const disc=+document.getElementById('admDiscount')?.value||0;
+  const payable=Math.max(0,total-disc);
+  document.getElementById('admPayable').value=payable.toFixed(0);
+  renderAdmParts();
+}
+function renderAdmParts(){
+  const parts=+document.getElementById('admParts')?.value||1;
+  const payable=+document.getElementById('admPayable')?.value||0;
+  const perPart=parts>0?+(payable/parts).toFixed(2):payable;
+  const list=document.getElementById('admPartsList');
+  if(!list)return;
+  if(parts<=1){list.innerHTML='';return;}
+  list.innerHTML=Array.from({length:parts},(_,i)=>`
+    <div class="drug-row" style="margin-bottom:5px">
+      <div class="drug-name">Part ${i+1}</div>
+      <input class="inp" style="width:130px;flex-shrink:0;font-family:monospace" type="number" id="admPart${i}" placeholder="₦${perPart.toLocaleString()}" value="${perPart}">
+    </div>`).join('');
+}
+
+let _admSearch=null;
 function openAdmit(vid){
   admDrugs=[];renderAdmDrugs();
   document.getElementById('admVid').value=vid;
@@ -372,13 +478,15 @@ function openAdmit(vid){
   document.getElementById('admFee').value='';
   document.getElementById('admDays').value='1';
   document.getElementById('admTotal').value='';
+  document.getElementById('admPayable').value='';
+  document.getElementById('admDiscount').value='';
+  document.getElementById('admPartsList').innerHTML='';
   document.getElementById('admBed').value='';
   document.getElementById('admBedGrid').innerHTML='<span class="txt-xs txt-muted">Select ward first</span>';
   document.getElementById('admWard').value='';
   C.modal('admitModal');
-  if(!admSearchInited){
-    admSearchInited=true;
-    mkDrugSearch('admDrugInp','admDrugDrop',d=>{
+  if(!_admSearch){
+    _admSearch=mkDrugSearch('admDrugInp','admDrugDrop',d=>{
       if(!admDrugs.find(x=>x.id===d.id)){admDrugs.push({...d,qty:1,dosage:''});renderAdmDrugs();}
     });
   }
@@ -398,27 +506,117 @@ async function submitAdmit(){
   const bed=document.getElementById('admBed').value;
   const reason=document.getElementById('admReason').value.trim();
   if(!ward||!bed||!reason){C.toast('Select ward, bed and enter reason','err');return;}
+  const days=+document.getElementById('admDays').value||1;
   const fd=new FormData();fd.append('csrfmiddlewaretoken',C.csrf());
   fd.append('ward',ward);fd.append('bed_number',bed);
   fd.append('daily_ward_fee',document.getElementById('admFee').value||0);
   fd.append('total_admission_fee',document.getElementById('admTotal').value||0);
+  fd.append('discount_amount',document.getElementById('admDiscount').value||0);
+  fd.append('est_days',days);
   fd.append('admission_reason',reason);
   admDrugs.forEach(d=>{fd.append('drug_ids[]',d.id);fd.append('dosages[]',d.dosage||'');fd.append('quantities[]',d.qty||1);});
   const r=await fetch(`/records/api/admit/${vid}/`,{method:'POST',body:fd});
   const res=await r.json();
-  if(res.status==='ok'){C.toast('Patient admitted — payment pending','ok');C.modal('admitModal',false);setTimeout(()=>location.reload(),400);}
+  if(res.status==='ok'){C.toast('Patient admitted — payment pending','ok');C.modal('admitModal',false);location.reload();}
   else C.toast(res.error,'err');
 }
 
 // ── SURGERY ──
-function openSurg(vid){document.getElementById('surgVid').value=vid;C.modal('surgModal');}
+let surgDrugs=[],surgTests=[],_surgDrugSearch=null,_surgTestSearch=null;
+
+function calcSurgAdmTotal(){
+  const f=+document.getElementById('surgAdmFee')?.value||0;
+  const d=+document.getElementById('surgAdmDays')?.value||1;
+  document.getElementById('surgAdmTotal').value=(f*d).toFixed(0);
+  // Auto-set instalments = number of days (one instalment per day)
+  const partsEl=document.getElementById('surgAdmParts');
+  if(partsEl){
+    partsEl.value=d;
+    const hint=document.getElementById('surgAdmPartsHint');
+    if(hint) hint.textContent=`${d} instalment${d>1?'s':''} (one per day — ₦${f.toLocaleString()} each)`;
+  }
+  calcSurgAdmPayable();
+}
+function calcSurgAdmPayable(){
+  const total=+document.getElementById('surgAdmTotal')?.value||0;
+  const disc=+document.getElementById('surgAdmDiscount')?.value||0;
+  document.getElementById('surgAdmPayable').value=Math.max(0,total-disc).toFixed(0);
+  renderSurgAdmParts();
+}
+function calcSurgTotal(){renderSurgParts();}
+function renderSurgParts(){
+  const parts=+document.getElementById('surgParts')?.value||1;
+  const fee=+document.getElementById('surgFee')?.value||0;
+  const perPart=parts>0?+(fee/parts).toFixed(2):fee;
+  const list=document.getElementById('surgPartsList');
+  if(!list)return;
+  if(parts<=1){list.innerHTML='';return;}
+  list.innerHTML=Array.from({length:parts},(_,i)=>`
+    <div class="drug-row" style="margin-bottom:5px">
+      <div class="drug-name">Part ${i+1}</div>
+      <input class="inp" style="width:130px;flex-shrink:0;font-family:monospace" type="number" id="surgPart${i}" placeholder="₦${perPart.toLocaleString()}" value="${perPart}">
+    </div>`).join('');
+}
+function renderSurgAdmParts(){
+  const parts=+document.getElementById('surgAdmParts')?.value||1;
+  const payable=+document.getElementById('surgAdmPayable')?.value||0;
+  const perPart=parts>0?+(payable/parts).toFixed(2):payable;
+  const list=document.getElementById('surgAdmPartsList');
+  if(!list)return;
+  if(parts<=1){list.innerHTML='';return;}
+  list.innerHTML=Array.from({length:parts},(_,i)=>`
+    <div class="drug-row" style="margin-bottom:5px">
+      <div class="drug-name">Adm Part ${i+1}</div>
+      <input class="inp" style="width:130px;flex-shrink:0;font-family:monospace" type="number" id="surgAdmPart${i}" placeholder="₦${perPart.toLocaleString()}" value="${perPart}">
+    </div>`).join('');
+}
+function renderSurgDrugs(){
+  document.getElementById('surgDrugList').innerHTML=surgDrugs.length?surgDrugs.map((d,i)=>`
+    <div class="drug-row">
+      <div class="drug-name">${d.name}${d.strength?` (${d.strength})`:''}<span class="drug-sub">₦${Number(d.price).toLocaleString()}</span></div>
+      <input class="inp" style="width:52px;flex-shrink:0" type="number" value="${d.qty}" min="1" oninput="surgDrugs[${i}].qty=+this.value">
+      <input class="inp" style="flex:1;min-width:90px" placeholder="Dosage" value="${d.dosage||''}" oninput="surgDrugs[${i}].dosage=this.value">
+      <button class="btn btn-danger btn-xs" onclick="surgDrugs.splice(${i},1);renderSurgDrugs()">×</button>
+    </div>`).join(''):'<div class="txt-xs txt-muted" style="padding:4px 0">No drugs added.</div>';
+}
+function renderSurgTests(){
+  document.getElementById('surgTestList').innerHTML=surgTests.length?surgTests.map((t,i)=>`
+    <div class="drug-row">
+      <div class="drug-name">${t.name}<span class="drug-sub">${t.category||''} · ₦${Number(t.price).toLocaleString()}</span></div>
+      <button class="btn btn-danger btn-xs" onclick="surgTests.splice(${i},1);renderSurgTests()">×</button>
+    </div>`).join(''):'<div class="txt-xs txt-muted" style="padding:4px 0">No tests added.</div>';
+}
+function openSurg(vid){
+  surgDrugs=[];surgTests=[];renderSurgDrugs();renderSurgTests();
+  document.getElementById('surgVid').value=vid;
+  document.getElementById('surgName').value='';
+  document.getElementById('surgFee').value='';
+  document.getElementById('surgParts').value='1';
+  document.getElementById('surgPartsList').innerHTML='';
+  document.getElementById('surgAdmCb').checked=false;
+  document.getElementById('surgAdmFields').classList.add('hidden');
+  C.modal('surgModal');
+  if(!_surgDrugSearch){
+    _surgDrugSearch=mkDrugSearch('surgDrugInp','surgDrugDrop',d=>{
+      if(!surgDrugs.find(x=>x.id===d.id)){surgDrugs.push({...d,qty:1,dosage:''});renderSurgDrugs();}
+    });
+  }
+  if(!_surgTestSearch){
+    _surgTestSearch=mkTestSearch('surgTestInp','surgTestDrop',t=>{
+      if(!surgTests.find(x=>x.id===t.id)){surgTests.push({...t});renderSurgTests();}
+    });
+  }
+}
 async function submitSurg(){
   const vid=document.getElementById('surgVid').value;
   const name=document.getElementById('surgName').value.trim();
   const fee=document.getElementById('surgFee').value;
   if(!name||!fee){C.toast('Procedure name and fee required','err');return;}
+  const surgParts=+document.getElementById('surgParts').value||1;
   const fd=new FormData();fd.append('csrfmiddlewaretoken',C.csrf());
   fd.append('procedure_name',name);fd.append('surgery_fee',fee);
+  fd.append('surg_parts',surgParts);
+  for(let i=0;i<surgParts;i++){const el=document.getElementById('surgPart'+i);if(el)fd.append('surg_part_amounts[]',el.value||0);}
   fd.append('anesthesia_type',document.getElementById('surgAnes').value);
   fd.append('purpose_and_benefits',document.getElementById('surgPurpose').value);
   fd.append('known_risks',document.getElementById('surgRisks').value);
@@ -429,17 +627,35 @@ async function submitSurg(){
   fd.append('residents_involved',document.getElementById('sResidents').checked?'1':'0');
   fd.append('photography_permitted',document.getElementById('sPhoto').checked?'1':'0');
   fd.append('blood_transfusion_consent','na');
+  surgDrugs.forEach(d=>{fd.append('surg_drug_ids[]',d.id);fd.append('surg_drug_dosages[]',d.dosage||'');fd.append('surg_drug_quantities[]',d.qty||1);});
+  surgTests.forEach(t=>{fd.append('surg_test_ids[]',t.id);});
   if(document.getElementById('surgAdmCb').checked){
+    const admParts=+document.getElementById('surgAdmParts').value||1;
     fd.append('admit_after_surgery','1');
     fd.append('ward',document.getElementById('surgAdmWard').value);
     fd.append('bed_number',document.getElementById('surgAdmBed').value);
     fd.append('daily_ward_fee',document.getElementById('surgAdmFee').value||0);
     fd.append('total_admission_fee',document.getElementById('surgAdmTotal').value||0);
+    fd.append('adm_discount',document.getElementById('surgAdmDiscount').value||0);
+    fd.append('adm_parts',admParts);
+    for(let i=0;i<admParts;i++){const el=document.getElementById('surgAdmPart'+i);if(el)fd.append('adm_part_amounts[]',el.value||0);}
   }
   const r=await fetch(`/records/api/surgery/${vid}/`,{method:'POST',body:fd});
   const res=await r.json();
-  if(res.status==='ok'){C.toast('Surgery form sent to patient','ok');C.modal('surgModal',false);setTimeout(()=>location.reload(),400);}
+  if(res.status==='ok'){C.toast('Surgery form sent to patient','ok');C.modal('surgModal',false);location.reload();}
   else C.toast(res.error,'err');
+}
+
+async function toggleSurgery(id, btn){
+  btn.disabled=true;
+  const r=await C.post(`/records/api/surgery-toggle/${id}/`);
+  if(r.status==='ok'){
+    C.toast(r.display,'ok');
+    setTimeout(()=>location.reload(),600);
+  } else {
+    btn.disabled=false;
+    C.toast(r.error||'Error','err');
+  }
 }
 
 async function viewPatient(pid){

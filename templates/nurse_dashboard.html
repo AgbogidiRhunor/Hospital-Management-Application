@@ -47,8 +47,6 @@
       <button class="btn btn-primary btn-sm">{% if v.vitals %}Update Vitals{% else %}Take Vitals{% endif %}</button>
     </div>
     <div class="vc-body {% if not v.vitals %}{% else %}hidden{% endif %}" id="nb{{ v.id }}">
-      {% if v.patient.allergies %}<div class="alert a-warn mt-1 mb-2">⚠ {{ v.patient.allergies }}</div>{% endif %}
-      {% if v.patient.blood_group %}<div style="margin-bottom:10px"><span class="badge b-red">{{ v.patient.blood_group }}</span></div>{% endif %}
       <div class="g4 mt-1" style="gap:8px">
         <div class="fg mb-1"><label class="lbl">BP (mmHg)</label><input class="inp" id="bp{{ v.id }}" placeholder="120/80" value="{{ v.vitals.blood_pressure|default:'' }}"></div>
         <div class="fg mb-1"><label class="lbl">Pulse (bpm)</label><input class="inp" type="number" id="pr{{ v.id }}" placeholder="72" value="{{ v.vitals.pulse_rate|default:'' }}"></div>

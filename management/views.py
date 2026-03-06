@@ -84,7 +84,7 @@ def dashboard(request):
     return redirect('login')
 
 
-# ─── DOCTOR DASHBOARD ──────────────────────────────────────────────────────────
+# DOCTOR DASHBOARD
 @login_required
 def doctor_dashboard(request):
     if request.user.role != 'doctor':
@@ -105,7 +105,10 @@ def doctor_dashboard(request):
         id__in=admitted_visit_ids
     ).prefetch_related(
         'vitals', 'prescriptions__drugs__drug', 'lab_requests__tests__test',
-        'doctor_notes', 'payments'
+        'doctor_notes', 'payments',
+        'surgeries__surgery_drugs__drug',
+        'surgeries__surgery_labs__test',
+        'surgeries__admission',
     ).select_related('patient', 'nurse').order_by('queue_number', 'created_at')
 
     rooms = ConsultingRoom.objects.filter(is_active=True)
@@ -182,7 +185,11 @@ def select_consulting_room(request):
 def end_visit(request, visit_id):
     if request.method == 'POST' and request.user.role == 'doctor':
         from records.models import PatientVisit
+        from accounting.models import Payment
         visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
+        pending = Payment.objects.filter(visit=visit, is_paid=False).count()
+        if pending:
+            return JsonResponse({'error': f'Cannot end visit: {pending} payment(s) still pending. All payments must be settled first.'}, status=400)
         visit.status = 'completed'
         visit.save()
         return JsonResponse({'status': 'ok'})
@@ -397,15 +404,21 @@ def patient_dashboard(request):
     ).exclude(status='completed').select_related('doctor', 'nurse', 'accountant').prefetch_related(
         'vitals', 'prescriptions__drugs__drug',
         'lab_requests__tests__test',
-        'payments', 'surgeries',
+        'payments', 'doctor_notes',
+        'surgeries__surgery_drugs__drug',
+        'surgeries__surgery_labs__test',
+        'surgeries__admission',
+        'surgeries__payments',
         'admissions__prescriptions__items__drug',
         'admissions__visit__lab_requests__tests__test',
-        'doctor_notes',
+        'admissions__payments',
     ).first()
     from records.models import Surgery
     pending_surgery_reviews = Surgery.objects.filter(
         patient=request.user, status='draft'
-    ).select_related('doctor', 'visit')
+    ).select_related('doctor', 'visit').prefetch_related(
+        'surgery_drugs__drug', 'surgery_labs__test', 'admission'
+    )
     ctx = {
         'user': request.user,
         'active_visit': active_visit,
@@ -550,6 +563,10 @@ def ward_dashboard(request):
     ).select_related('patient', 'doctor', 'nurse', 'visit').prefetch_related(
         'prescriptions__items__drug',
         'visit__lab_requests__tests__test',
+        'visit__surgeries__surgery_drugs__drug',
+        'visit__surgeries__surgery_labs__test',
+        'visit__surgeries__payments',
+        'payments',
     ).order_by('ward', 'bed_number')
 
     available_lab_attendants = User.objects.filter(role='lab_attendant', is_approved=True, is_available=True)
@@ -583,10 +600,17 @@ def admit_ward_patient(request, admission_id):
 
 @login_required
 def discharge_patient(request, admission_id):
-    """Nurse or doctor discharges a patient."""
+    """Nurse or doctor discharges a patient — blocked if any payments outstanding."""
     if request.method == 'POST' and request.user.role in ['nurse', 'doctor']:
         from records.models import WardAdmission
+        from accounting.models import Payment
         admission = get_object_or_404(WardAdmission, pk=admission_id, status='admitted')
+        # Block discharge if any payments on this visit are still outstanding
+        outstanding = Payment.objects.filter(
+            visit=admission.visit, is_paid=False
+        ).count()
+        if outstanding:
+            return JsonResponse({'error': f'Cannot discharge: {outstanding} payment(s) still outstanding (including surgery). All payments must be cleared before discharge.'}, status=400)
         admission.status = 'discharged'
         from django.utils import timezone
         admission.discharged_at = timezone.now()

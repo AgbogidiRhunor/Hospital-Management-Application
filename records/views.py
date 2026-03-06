@@ -38,7 +38,7 @@ def prescribe(request, visit_id):
         if accountant_id:
             accountant = User.objects.filter(pk=accountant_id, role='accountant').first()
         if not accountant:
-            accountant = visit.accountant  # fall back to visit's accountant
+            accountant = visit.accountant
 
         drug_ids = d.getlist('drug_ids[]')
         dosages = d.getlist('dosages[]')
@@ -65,8 +65,9 @@ def prescribe(request, visit_id):
                     price = drug.price * qty
                     inj_days = request.POST.getlist('injection_days[]')
                     inj_times = request.POST.getlist('injection_times[]')
-                    inj_d = int(inj_days[list(drug_ids).index(drug_id)]) if inj_days and list(drug_ids).index(drug_id) < len(inj_days) and inj_days[list(drug_ids).index(drug_id)] else None
-                    inj_t = int(inj_times[list(drug_ids).index(drug_id)]) if inj_times and list(drug_ids).index(drug_id) < len(inj_times) and inj_times[list(drug_ids).index(drug_id)] else None
+                    idx = list(drug_ids).index(drug_id)
+                    inj_d = int(inj_days[idx]) if inj_days and idx < len(inj_days) and inj_days[idx] else None
+                    inj_t = int(inj_times[idx]) if inj_times and idx < len(inj_times) and inj_times[idx] else None
                     PrescriptionDrug.objects.create(
                         prescription=rx, drug=drug,
                         dosage=dosage, quantity=qty,
@@ -80,7 +81,6 @@ def prescribe(request, visit_id):
             rx.total_price = total
             rx.save()
 
-            # Create payment for accountant
             Payment.objects.create(
                 visit=visit,
                 patient=visit.patient,
@@ -161,22 +161,68 @@ def order_lab(request, visit_id):
     return JsonResponse({'error': 'forbidden'}, status=403)
 
 
+def _create_part_payments(visit, patient, accountant, payment_type, total_amount,
+                           discount_amount, num_parts, part_amounts,
+                           obj_fk_name, obj_instance, payment_group):
+    """
+    Helper: creates 1-5 part payment records.
+    part_amounts: list of float amounts (len == num_parts). If empty, splits evenly.
+    """
+    net = float(total_amount) - float(discount_amount)
+    if net < 0:
+        net = 0
+
+    if not part_amounts or len(part_amounts) != num_parts:
+        # Split evenly
+        base = round(net / num_parts, 2)
+        part_amounts = [base] * num_parts
+        # Fix rounding so sum == net
+        diff = round(net - sum(part_amounts), 2)
+        part_amounts[0] = round(part_amounts[0] + diff, 2)
+
+    payments = []
+    for i, amt in enumerate(part_amounts, 1):
+        kwargs = {
+            'visit': visit,
+            'patient': patient,
+            'accountant': accountant,
+            'payment_type': payment_type,
+            'amount': amt,
+            'original_amount': float(total_amount) / num_parts,
+            'discount_amount': float(discount_amount) / num_parts if i == 1 else 0,
+            'part_number': i,
+            'total_parts': num_parts,
+            'payment_group': payment_group,
+            obj_fk_name: obj_instance,
+        }
+        p = Payment.objects.create(**kwargs)
+        payments.append(p)
+    return payments
+
+
 @login_required
 def admit_patient(request, visit_id):
-    """Doctor submits admission form."""
+    """Doctor submits admission form with optional part-payments and discount."""
     if request.method == 'POST' and request.user.role == 'doctor':
         from records.models import WardAdmission, WARD_CAPACITY
         visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
         d = request.POST
         ward = d.get('ward')
         bed_number = int(d.get('bed_number', 1))
-        daily_fee = float(d.get('daily_ward_fee', 0))
-        total_fee = float(d.get('total_admission_fee', 0))
+        daily_fee = float(d.get('daily_ward_fee', 0) or 0)
+        total_fee = float(d.get('total_admission_fee', 0) or 0)
+        discount = float(d.get('discount_amount', 0) or 0)
+        est_days = max(1, int(d.get('est_days', 1) or 1))
 
-        # Check bed availability
-        occupied = WardAdmission.objects.filter(ward=ward, bed_number=bed_number, status__in=['paid','admitted']).count()
+        # Instalment plan: one part per day (daily_fee per part)
+        # JS sends est_days; each instalment = daily_fee
+        num_parts = est_days
+        # Each part = daily_fee (net of discount spread evenly)
+        part_amounts = []  # let _create_part_payments split evenly (daily_fee per part)
+
+        occupied = WardAdmission.objects.filter(ward=ward, bed_number=bed_number, status__in=['paid', 'admitted']).count()
         if occupied:
-            return JsonResponse({'error': f'Bed {bed_number} in {ward} is already occupied'}, status=400)
+            return JsonResponse({'error': f'Bed {bed_number} is already occupied'}, status=400)
 
         drug_ids = d.getlist('drug_ids[]')
         dosages = d.getlist('dosages[]')
@@ -189,13 +235,21 @@ def admit_patient(request, visit_id):
                 ward=ward, bed_number=bed_number,
                 admission_reason=d.get('admission_reason', ''),
                 daily_ward_fee=daily_fee, total_admission_fee=total_fee,
+                discount_amount=discount,
+                admission_fee_parts=num_parts,
                 status='pending_payment',
             )
-            Payment.objects.create(
+
+            group = f'admission-{admission.pk}'
+            _create_part_payments(
                 visit=visit, patient=visit.patient, accountant=visit.accountant,
-                payment_type='admission', amount=total_fee,
-                admission=admission,
+                payment_type='admission', total_amount=total_fee,
+                discount_amount=discount, num_parts=num_parts,
+                part_amounts=part_amounts,
+                obj_fk_name='admission', obj_instance=admission,
+                payment_group=group,
             )
+
             # Create initial admission prescription if drugs provided
             if drug_ids:
                 from records.models import AdmissionPrescription, AdmissionPrescriptionItem
@@ -222,18 +276,65 @@ def admit_patient(request, visit_id):
                         visit=visit, patient=visit.patient, accountant=visit.accountant,
                         payment_type='admission_medication', amount=med_total,
                         admission=admission,
+                        payment_group=group,  # same group so it appears in same accountant tab
                     )
         return JsonResponse({'status': 'ok', 'admission_id': admission.pk})
     return JsonResponse({'error': 'forbidden'}, status=403)
 
 
 @login_required
-def create_surgery(request, visit_id):
-    """Doctor submits surgery consent form."""
+def update_admission_payment(request, admission_id):
+    """Doctor adds/modifies discount on an existing admission payment."""
     if request.method == 'POST' and request.user.role == 'doctor':
-        from records.models import Surgery, WardAdmission, WARD_CAPACITY
+        from records.models import WardAdmission
+        admission = get_object_or_404(WardAdmission, pk=admission_id, doctor=request.user)
+        new_discount = float(request.POST.get('discount_amount', 0) or 0)
+
+        with transaction.atomic():
+            # Update unpaid admission payments with new discount spread
+            unpaid = Payment.objects.filter(
+                admission=admission, payment_type='admission', is_paid=False
+            ).order_by('part_number')
+            if unpaid.exists():
+                total_unpaid_original = sum(float(p.amount) + float(p.discount_amount) for p in unpaid)
+                count = unpaid.count()
+                # Spread discount evenly across unpaid parts
+                discount_each = round(new_discount / count, 2)
+                for i, p in enumerate(unpaid):
+                    original = total_unpaid_original / count
+                    p.discount_amount = discount_each
+                    p.amount = round(original - discount_each, 2)
+                    p.save()
+            admission.discount_amount = new_discount
+            admission.save()
+        return JsonResponse({'status': 'ok'})
+    return JsonResponse({'error': 'forbidden'}, status=403)
+
+
+@login_required
+def create_surgery(request, visit_id):
+    """Doctor submits surgery consent form with optional drugs, labs, and part-payments."""
+    if request.method == 'POST' and request.user.role == 'doctor':
+        from records.models import Surgery, WardAdmission, SurgeryDrug, SurgeryLabTest
         visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
         d = request.POST
+
+        # JS sends 'surg_parts', fallback to 'surgery_fee_parts' for ward dashboard
+        num_parts = max(1, min(5, int(d.get('surg_parts') or d.get('surgery_fee_parts', 1) or 1)))
+        surgery_fee = float(d.get('surgery_fee', 0) or 0)
+        surgery_discount = float(d.get('surgery_discount_amount', 0) or 0)
+
+        # Parse part amounts if doctor specified custom splits
+        part_amounts_raw = d.getlist('surg_part_amounts[]')
+        part_amounts = [float(x) for x in part_amounts_raw if x] if part_amounts_raw else []
+
+        # Drug items — JS sends 'surg_drug_quantities[]'
+        drug_ids = d.getlist('surg_drug_ids[]')
+        drug_dosages = d.getlist('surg_drug_dosages[]')
+        drug_qtys = d.getlist('surg_drug_quantities[]')  # fixed: was surg_drug_qtys[]
+
+        # Lab test items — JS sends 'surg_test_ids[]'
+        lab_test_ids = d.getlist('surg_test_ids[]')  # fixed: was surg_lab_ids[]
 
         with transaction.atomic():
             surgery = Surgery.objects.create(
@@ -254,31 +355,99 @@ def create_surgery(request, visit_id):
                 postop_instructions=d.get('postop_instructions', ''),
                 patient_acknowledged=d.get('patient_acknowledged') == '1',
                 witness_name=d.get('witness_name', ''),
-                surgery_fee=float(d.get('surgery_fee', 0) or 0),
+                surgery_fee=surgery_fee,
+                surgery_fee_parts=num_parts,
+                surgery_discount_amount=surgery_discount,
                 admit_after_surgery=d.get('admit_after_surgery') == '1',
                 status='draft',
             )
-            # If post-op admission is required
+
+            # Add surgery drugs
+            drug_total = 0
+            for drug_id, dosage, qty in zip(drug_ids, drug_dosages, drug_qtys):
+                try:
+                    drug = Drug.objects.get(pk=drug_id)
+                    qty_int = int(qty) if qty else 1
+                    price = drug.price * qty_int
+                    SurgeryDrug.objects.create(
+                        surgery=surgery, drug=drug,
+                        drug_name=drug.name, dosage=dosage,
+                        quantity=qty_int, price_at_time=drug.price,
+                    )
+                    drug_total += price
+                except Drug.DoesNotExist:
+                    pass
+            surgery.surgery_drug_total = drug_total
+
+            # Add surgery lab tests
+            lab_total = 0
+            for test_id in lab_test_ids:
+                try:
+                    test = LabTest.objects.get(pk=test_id)
+                    SurgeryLabTest.objects.create(
+                        surgery=surgery, test=test,
+                        test_name=test.name,
+                        price_at_time=test.price,
+                    )
+                    lab_total += test.price
+                except LabTest.DoesNotExist:
+                    pass
+            surgery.surgery_lab_total = lab_total
+            surgery.save()
+
+            # Post-op admission if requested
             if surgery.admit_after_surgery and d.get('ward'):
                 ward = d.get('ward')
                 bed_number = int(d.get('bed_number', 1))
-                daily_fee = float(d.get('daily_ward_fee', 0))
-                total_fee = float(d.get('total_admission_fee', 0))
+                daily_fee = float(d.get('daily_ward_fee', 0) or 0)
+                total_fee = float(d.get('total_admission_fee', 0) or 0)
+                adm_discount = float(d.get('adm_discount') or d.get('adm_discount_amount', 0) or 0)
+                adm_parts = max(1, min(5, int(d.get('adm_parts') or d.get('adm_fee_parts', 1) or 1)))
+                adm_part_amounts_raw = d.getlist('adm_part_amounts[]')
+                adm_part_amounts = [float(x) for x in adm_part_amounts_raw if x] if adm_part_amounts_raw else []
+
                 admission = WardAdmission.objects.create(
                     visit=visit, patient=visit.patient, doctor=request.user,
                     ward=ward, bed_number=bed_number,
                     admission_reason=f'Post-surgery: {surgery.procedure_name}',
                     daily_ward_fee=daily_fee, total_admission_fee=total_fee,
+                    discount_amount=adm_discount,
+                    admission_fee_parts=adm_parts,
                     status='pending_payment',
                 )
                 surgery.admission = admission
                 surgery.save()
-                if total_fee:
-                    Payment.objects.create(
-                        visit=visit, patient=visit.patient, accountant=visit.accountant,
-                        payment_type='admission', amount=total_fee,
-                    )
+
         return JsonResponse({'status': 'ok', 'surgery_id': surgery.pk})
+    return JsonResponse({'error': 'forbidden'}, status=403)
+
+
+@login_required
+def update_surgery_discount(request, surgery_id):
+    """Doctor modifies discount/parts on an existing surgery payment (before or after payment)."""
+    if request.method == 'POST' and request.user.role == 'doctor':
+        from records.models import Surgery
+        surgery = get_object_or_404(Surgery, pk=surgery_id, doctor=request.user)
+        new_discount = float(request.POST.get('surgery_discount_amount', 0) or 0)
+
+        with transaction.atomic():
+            # Update only unpaid surgery payments
+            unpaid = Payment.objects.filter(
+                surgery=surgery, payment_type='surgery', is_paid=False
+            ).order_by('part_number')
+            if unpaid.exists():
+                count = unpaid.count()
+                discount_each = round(new_discount / count, 2)
+                for p in unpaid:
+                    original = float(p.amount) + float(p.discount_amount)
+                    p.discount_amount = discount_each
+                    p.amount = round(original - discount_each, 2)
+                    if p.amount < 0:
+                        p.amount = 0
+                    p.save()
+            surgery.surgery_discount_amount = new_discount
+            surgery.save()
+        return JsonResponse({'status': 'ok'})
     return JsonResponse({'error': 'forbidden'}, status=403)
 
 
@@ -305,7 +474,6 @@ def ward_occupancy(request):
 def print_lab_results(request, lr_id):
     from lab.models import LabRequest
     lr = get_object_or_404(LabRequest, pk=lr_id)
-    # Allow patient, doctor, lab attendant
     if request.user not in [lr.patient, lr.doctor, lr.lab_attendant] and not request.user.is_staff:
         if request.user.role not in ['lab_attendant', 'doctor']:
             return redirect('dashboard')
@@ -314,27 +482,120 @@ def print_lab_results(request, lr_id):
 
 @login_required
 def patient_review_surgery(request, surgery_id):
-    """Patient reviews and signs the surgery consent form."""
+    """Patient reviews and signs the surgery consent form, then payments are created."""
     from records.models import Surgery
     if request.method == 'POST' and request.user.role == 'patient':
-        surgery = get_object_or_404(Surgery, pk=surgery_id, patient=request.user, status='draft')
-        d = request.POST
-        surgery.patient_full_name_signed = d.get('patient_full_name_signed', '').strip()
-        surgery.patient_questions = d.get('patient_questions', '')
-        surgery.patient_understanding = d.get('patient_understanding') == '1'
-        surgery.patient_voluntary = d.get('patient_voluntary') == '1'
-        surgery.patient_acknowledged = d.get('patient_acknowledged') == '1'
-        surgery.patient_signed_at = timezone.now()
-        surgery.status = 'patient_reviewed'
-        surgery.save()
-        # Create payment to accountant
-        if surgery.surgery_fee > 0:
-            Payment.objects.create(
-                visit=surgery.visit, patient=surgery.patient,
-                accountant=surgery.visit.accountant,
-                payment_type='surgery', amount=surgery.surgery_fee,
-                surgery=surgery,
-            )
+        # Use select_for_update inside atomic to prevent duplicate submissions
+        with transaction.atomic():
+            try:
+                surgery = Surgery.objects.select_for_update().get(
+                    pk=surgery_id, patient=request.user, status='draft'
+                )
+            except Surgery.DoesNotExist:
+                return JsonResponse({'error': 'This consent form has already been submitted or does not exist.'}, status=400)
+            d = request.POST
+            surgery.patient_full_name_signed = d.get('patient_full_name_signed', '').strip()
+            surgery.patient_questions = d.get('patient_questions', '')
+            surgery.patient_understanding = d.get('patient_understanding') == '1'
+            surgery.patient_voluntary = d.get('patient_voluntary') == '1'
+            surgery.patient_acknowledged = d.get('patient_acknowledged') == '1'
+            surgery.patient_signed_at = timezone.now()
+            surgery.status = 'patient_reviewed'
+            surgery.save()
+
+        accountant = surgery.visit.accountant
+        group = f'surgery-{surgery.pk}'
+
+        with transaction.atomic():
+            # Surgery fee: split into parts with discount
+            if surgery.surgery_fee > 0:
+                _create_part_payments(
+                    visit=surgery.visit, patient=surgery.patient,
+                    accountant=accountant,
+                    payment_type='surgery',
+                    total_amount=surgery.surgery_fee,
+                    discount_amount=surgery.surgery_discount_amount,
+                    num_parts=surgery.surgery_fee_parts,
+                    part_amounts=[],
+                    obj_fk_name='surgery', obj_instance=surgery,
+                    payment_group=group,
+                )
+
+            # Surgery drugs: full payment (no parts, no discount)
+            if surgery.surgery_drug_total > 0:
+                # Create a Prescription for the surgery drugs so pharmacist can handle it
+                from pharmacy.models import Prescription, PrescriptionDrug
+                rx = Prescription.objects.create(
+                    visit=surgery.visit,
+                    patient=surgery.patient,
+                    doctor=surgery.doctor,
+                    accountant=accountant,
+                    doctor_note=f'Surgery drugs for: {surgery.procedure_name}',
+                    status='pending_payment',
+                )
+                for sd in surgery.surgery_drugs.select_related('drug'):
+                    if sd.drug:
+                        PrescriptionDrug.objects.create(
+                            prescription=rx, drug=sd.drug,
+                            dosage=sd.dosage, quantity=sd.quantity,
+                            price_at_time=sd.price_at_time,
+                        )
+                rx.total_price = surgery.surgery_drug_total
+                rx.save()
+                Payment.objects.create(
+                    visit=surgery.visit, patient=surgery.patient,
+                    accountant=accountant,
+                    payment_type='prescription',
+                    amount=surgery.surgery_drug_total,
+                    prescription=rx,
+                    surgery=surgery,
+                    payment_group=group,
+                )
+
+            # Surgery lab tests: full payment (no parts, no discount)
+            if surgery.surgery_lab_total > 0:
+                lr = LabRequest.objects.create(
+                    visit=surgery.visit,
+                    patient=surgery.patient,
+                    doctor=surgery.doctor,
+                    accountant=accountant,
+                    doctor_note=f'Pre-surgery tests for: {surgery.procedure_name}',
+                    status='pending_payment',
+                )
+                for sl in surgery.surgery_labs.select_related('test'):
+                    if sl.test:
+                        LabRequestTest.objects.create(
+                            request=lr, test=sl.test,
+                            price_at_time=sl.price_at_time,
+                        )
+                lr.total_price = surgery.surgery_lab_total
+                lr.save()
+                Payment.objects.create(
+                    visit=surgery.visit, patient=surgery.patient,
+                    accountant=accountant,
+                    payment_type='lab',
+                    amount=surgery.surgery_lab_total,
+                    lab_request=lr,
+                    surgery=surgery,
+                    payment_group=group,
+                )
+
+            # Post-surgery admission: use SAME group as surgery so accountant sees one tab
+            if surgery.admission:
+                adm = surgery.admission
+                if adm.total_admission_fee > 0:
+                    _create_part_payments(
+                        visit=surgery.visit, patient=surgery.patient,
+                        accountant=accountant,
+                        payment_type='admission',
+                        total_amount=adm.total_admission_fee,
+                        discount_amount=adm.discount_amount,
+                        num_parts=adm.admission_fee_parts,
+                        part_amounts=[],
+                        obj_fk_name='admission', obj_instance=adm,
+                        payment_group=group,  # same as surgery group: 'surgery-{surgery.pk}'
+                    )
+
         return JsonResponse({'status': 'ok'})
     return JsonResponse({'error': 'forbidden'}, status=403)
 
@@ -372,3 +633,38 @@ def lab_test_search(request):
         )[:30]
     results = [{'id': t.pk, 'name': t.name, 'category': t.category, 'price': float(t.price)} for t in tests]
     return JsonResponse({'results': results})
+
+
+@login_required
+def decline_surgery(request, surgery_id):
+    """Patient declines a surgery consent form."""
+    if request.method == 'POST' and request.user.role == 'patient':
+        from records.models import Surgery
+        surgery = get_object_or_404(Surgery, pk=surgery_id, patient=request.user, status='draft')
+        surgery.status = 'cancelled'
+        surgery.save()
+        return JsonResponse({'status': 'ok'})
+    return JsonResponse({'error': 'forbidden'}, status=403)
+
+
+@login_required
+def toggle_surgery_status(request, surgery_id):
+    """Doctor toggles surgery status: pending → underway → ended."""
+    if request.method == 'POST' and request.user.role == 'doctor':
+        from records.models import Surgery
+        surgery = get_object_or_404(Surgery, pk=surgery_id, doctor=request.user)
+        transitions = {
+            'pending': 'underway',
+            'underway': 'ended',
+        }
+        new_status = transitions.get(surgery.status)
+        if not new_status:
+            return JsonResponse({'error': 'Cannot toggle from this status'}, status=400)
+        surgery.status = new_status
+        if new_status == 'underway':
+            surgery.scheduled_at = timezone.now()
+        elif new_status == 'ended':
+            surgery.completed_at = timezone.now()
+        surgery.save()
+        return JsonResponse({'status': 'ok', 'new_status': new_status, 'display': surgery.get_status_display()})
+    return JsonResponse({'error': 'forbidden'}, status=403)

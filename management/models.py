@@ -43,6 +43,12 @@ DOCTOR_TYPES = [
     ('specialist', 'Specialist'),
 ]
 
+GENDER_CHOICES = [
+    ("M", "Male"),
+    ("F", "Female"),
+    ("O", "Other"),
+]
+
 BLOOD_GROUPS = [('A+','A+'),('A-','A-'),('B+','B+'),('B-','B-'),('O+','O+'),('O-','O-'),('AB+','AB+'),('AB-','AB-')]
 GENOTYPES = [('AA','AA'),('AS','AS'),('SS','SS'),('AC','AC'),('SC','SC')]
 
@@ -88,13 +94,13 @@ class User(AbstractUser):
     # Basic info (all roles)
     preferred_name = models.CharField(max_length=100, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
-    gender = models.CharField(max_length=20, blank=True)
+    gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True)
     address = models.TextField(blank=True)
 
     # Patient-specific medical
-    blood_group = models.CharField(max_length=5, blank=True, choices=BLOOD_GROUPS)
-    genotype = models.CharField(max_length=5, blank=True, choices=GENOTYPES)
+    blood_group = models.CharField(max_length=10, blank=True, choices=BLOOD_GROUPS)
+    genotype = models.CharField(max_length=10, blank=True, choices=GENOTYPES)
     allergies = models.TextField(blank=True)
     medical_history = models.TextField(blank=True)
     current_medications = models.TextField(blank=True)
@@ -156,10 +162,4 @@ class User(AbstractUser):
     @property
     def is_patient(self): return self.role == 'patient'
 
-# Additional patient profile fields (add via migration)
-# These are referenced in the code below and should be added via migration
 
-
-# NOTE: Extra patient profile fields were added to the existing User model above.
-# Run: python manage.py makemigrations && python manage.py migrate
-# to apply any schema changes.

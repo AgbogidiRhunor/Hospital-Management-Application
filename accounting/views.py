@@ -13,10 +13,16 @@ def accountant_dashboard(request):
         return redirect('dashboard')
     pending = Payment.objects.filter(
         accountant=request.user, is_paid=False
-    ).select_related('patient', 'visit', 'lab_request', 'prescription').order_by('-created_at')
+    ).select_related(
+        'patient', 'visit', 'lab_request', 'prescription', 'surgery', 'admission'
+    ).prefetch_related(
+        'prescription__drugs__drug', 'lab_request__tests__test',
+    ).order_by('payment_group', 'part_number', '-created_at')
+
     processed = Payment.objects.filter(
         accountant=request.user, is_paid=True, accountant_dashboard_deleted=False
-    ).select_related('patient', 'visit').order_by('-paid_at')[:50]
+    ).select_related('patient', 'visit', 'surgery', 'admission').order_by('-paid_at')[:50]
+
     ctx = {'pending': pending, 'processed': processed, 'accountant': request.user}
     return render(request, 'accountant.html', ctx)
 
@@ -34,7 +40,6 @@ def confirm_payment(request, payment_id):
             if payment.payment_type == 'consultation':
                 visit.consultation_paid_at = timezone.now()
                 visit.status = 'paid'
-                # Assign queue number based on doctor's current queue
                 from records.models import PatientVisit
                 from django.db.models import Max
                 max_q = PatientVisit.objects.filter(
@@ -53,37 +58,47 @@ def confirm_payment(request, payment_id):
                 visit.save()
 
             elif payment.payment_type == 'surgery':
-                if payment.surgery:
-                    payment.surgery.status = 'paid'
-                    payment.surgery.save()
-                    # If surgery has a linked admission, mark it paid too
-                    if payment.surgery.admission:
-                        adm = payment.surgery.admission
-                        if adm.status == 'pending_payment':
-                            adm.status = 'paid'
-                            adm.save()
-                    # Also mark linked post-surgery admission as paid
-                    if payment.surgery.admission:
-                        adm = payment.surgery.admission
-                        if adm.status == 'pending_payment':
-                            adm.status = 'paid'
-                            adm.save()
+                surg = payment.surgery
+                if surg:
+                    remaining = Payment.objects.filter(
+                        surgery=surg, payment_type='surgery', is_paid=False
+                    ).exclude(pk=payment.pk).count()
+                    # Always move to 'pending' on first/any surgery payment confirmation
+                    # 'pending' means: payment received, surgery can proceed
+                    # Doctor toggles pending → underway → ended
+                    if surg.status in ('patient_reviewed', 'paid'):
+                        surg.status = 'pending'
+                        surg.save()
+                    elif surg.status == 'draft':
+                        surg.status = 'pending'
+                        surg.save()
+
             elif payment.payment_type in ('admission', 'admission_medication'):
-                from records.models import WardAdmission
-                # Use FK if available, else fallback
-                if payment.admission:
-                    admit = payment.admission
-                else:
-                    admit = WardAdmission.objects.filter(visit=payment.visit, status='pending_payment').first()
-                if admit and payment.payment_type == 'admission':
-                    admit.status = 'paid'
-                    admit.save()
+                adm = payment.admission
+                if not adm and payment.payment_type == 'admission':
+                    from records.models import WardAdmission
+                    adm = WardAdmission.objects.filter(visit=visit, status='pending_payment').first()
+                if adm and payment.payment_type == 'admission':
+                    remaining = Payment.objects.filter(
+                        admission=adm, payment_type='admission', is_paid=False
+                    ).exclude(pk=payment.pk).count()
+                    if remaining == 0 and adm.status == 'pending_payment':
+                        # All parts paid — fully settled
+                        adm.status = 'paid'
+                        adm.save()
+                    elif adm.status == 'pending_payment':
+                        # First part paid — unlock admission (nurse can admit)
+                        # Remaining parts still outstanding but patient can be admitted
+                        adm.status = 'paid'
+                        adm.save()
+
             elif payment.payment_type == 'prescription':
                 rx = payment.prescription
                 if rx:
                     rx.status = 'paid'
                     rx.paid_at = timezone.now()
                     rx.save()
+                # Route ALL prescriptions to pharmacy (including surgery drug prescriptions)
                 visit.status = 'pharmacy'
                 visit.save()
 
@@ -97,8 +112,7 @@ def delete_processed(request, payment_id):
         pay = get_object_or_404(Payment, pk=payment_id, accountant=request.user, is_paid=True)
         pay.accountant_dashboard_deleted = True
         pay.save()
-        return JsonResponse({'status': 'ok'})
-    return JsonResponse({'error': 'forbidden'}, status=403)
+        return JsonResponse({'status': 'ok'})\
 
 
 @login_required

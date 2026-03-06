@@ -144,11 +144,13 @@
   <div style="padding:0">
     {% for rx in v.prescriptions.all %}
     <div style="padding:10px 16px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-bottom:6px">
         <span style="font-weight:700;font-size:.82rem">Rx #{{ rx.id }}</span>
-        <span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}">{{ rx.get_status_display }}</span>
+        {% if rx.doctor_note|slice:":19" == "Surgery drugs for:" %}<span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">⚕ FOR SURGERY</span>{% endif %}
+        <span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}" style="margin-left:auto">{{ rx.get_status_display }}</span>
       </div>
-      {% for item in rx.drugs.all %}<div class="txt-xs txt-dim" style="margin-bottom:2px">{{ item.drug.name }} ×{{ item.quantity }}{% if item.dosage %} — {{ item.dosage }}{% endif %}</div>{% endfor %}
+      <div class="txt-xs txt-muted" style="margin-bottom:4px">{{ rx.created_at|date:"d M Y, H:i" }}</div>
+      {% for item in rx.drugs.all %}<div class="txt-xs txt-dim" style="margin-bottom:2px">{{ item.drug.name }}{% if item.drug.strength %} <span class="txt-muted">({{ item.drug.strength }})</span>{% endif %} ×{{ item.quantity }}{% if item.dosage %} — {{ item.dosage }}{% endif %}</div>{% endfor %}
     </div>
     {% endfor %}
   </div>
@@ -162,8 +164,10 @@
   <div style="padding:0">
     {% for lr in v.lab_requests.all %}
     <div style="padding:10px 16px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-bottom:5px">
         <span style="font-weight:700;font-size:.82rem">Lab #{{ lr.id }}</span>
+        {% if lr.doctor_note|slice:":12" == "Pre-surgery" %}<span style="background:rgba(124,58,237,.1);color:#7c3aed;padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">⚕ FOR SURGERY</span>{% elif lr.doctor_note == "Ward patient lab request" %}<span style="background:rgba(14,165,160,.1);color:var(--teal);padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700">🛏 FOR ADMISSION</span>{% endif %}
+        <span class="txt-xs txt-muted" style="margin-left:auto">{{ lr.created_at|date:"d M, H:i" }}</span>
         <span class="badge {% if lr.status == 'completed' %}b-teal{% elif lr.status == 'in_progress' %}b-blue{% else %}b-amber{% endif %}">{{ lr.get_status_display }}</span>
       </div>
       {% for t in lr.tests.all %}
@@ -198,7 +202,7 @@
 
     <!-- Ward Prescriptions -->
     {% if adm.prescriptions.all %}
-    <div class="sl" style="margin-top:0">Medications on Ward</div>
+    <div class="sl" style="margin-top:0">Medications on Ward <span style="background:rgba(14,165,160,.1);color:var(--teal);padding:1px 6px;border-radius:3px;font-size:.6rem;font-weight:700">🛏 FOR ADMISSION</span></div>
     {% for rx in adm.prescriptions.all %}
     <div style="margin-bottom:8px;padding:9px 11px;background:{% if rx.status == 'voided' %}var(--surface3){% else %}var(--teal-glow){% endif %};border:1px solid {% if rx.status == 'voided' %}var(--border){% else %}var(--teal-border){% endif %};border-radius:var(--r-sm);{% if rx.status == 'voided' %}opacity:.6{% endif %}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
@@ -214,53 +218,131 @@
     {% endfor %}
     {% endif %}
 
-    <!-- Ward Lab Tests (from visit lab_requests ordered during admission) -->
-    {% with ward_labs=adm.visit.lab_requests.all %}
-    {% if ward_labs %}
-    <div class="sl">Lab Tests on Ward</div>
-    {% for lr in ward_labs %}
-    <div style="margin-bottom:7px;padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <span class="fw-7 txt-xs">Lab #{{ lr.id }}</span>
+    <!-- Lab Tests on Ward -->
+    {% if adm.visit.lab_requests.all %}
+    <div class="sl" style="margin-top:8px">Lab Tests on Ward <span style="background:rgba(14,165,160,.1);color:var(--teal);padding:1px 6px;border-radius:3px;font-size:.6rem;font-weight:700">🛏 FOR ADMISSION</span></div>
+    {% for lr in adm.visit.lab_requests.all %}
+    {% if lr.doctor_note == "Ward patient lab request" %}
+    <div style="margin-bottom:8px;padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+        <span class="txt-sm fw-7">Lab #{{ lr.id }}</span>
         <span class="badge {% if lr.status == 'completed' %}b-teal{% elif lr.status == 'in_progress' %}b-blue{% else %}b-amber{% endif %}">{{ lr.get_status_display }}</span>
       </div>
+      <div class="txt-xs txt-dim" style="margin-bottom:4px">Ordered: {{ lr.created_at|date:"d M Y, H:i" }}</div>
       {% for t in lr.tests.all %}
-      <div style="padding:4px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <span class="txt-xs txt-dim">{{ t.test.name }}</span>
-          {% if t.is_completed %}<span class="badge b-teal" style="font-size:.6rem">Done</span>{% endif %}
-        </div>
-        {% if t.is_completed and t.result_note %}
-        <div style="margin-top:4px;padding:5px 7px;background:var(--teal-glow);border:1px solid var(--teal-border);border-radius:4px;font-size:.74rem"><span style="font-weight:700;color:var(--teal)">Result: </span>{{ t.result_note }}</div>
-        {% endif %}
+      <div class="txt-xs {% if t.is_completed %}txt-dim{% else %}txt-muted{% endif %}" style="margin-bottom:2px">
+        • {{ t.test.name }}{% if t.is_completed and t.result_note %} — <span style="color:var(--teal)">{{ t.result_note|truncatechars:60 }}</span>{% endif %}
       </div>
       {% endfor %}
-      {% if lr.status == 'completed' %}<a href="{% url 'print_lab_results' lr.id %}" target="_blank" class="btn btn-ghost btn-xs mt-1">View Report</a>{% endif %}
     </div>
+    {% endif %}
     {% endfor %}
     {% endif %}
-    {% endwith %}
+
+
   </div>
 </div>
 {% endfor %}
 
 <!-- Surgeries -->
 {% if v.surgeries.all %}
-<div class="card">
-  <div class="card-h"><span class="card-title">⚕ Surgery</span></div>
-  <div style="padding:0">
-    {% for s in v.surgeries.all %}
-    <div style="padding:11px 16px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <span class="fw-7 txt-sm">{{ s.procedure_name }}</span>
-        <span class="badge {% if s.status == 'paid' %}b-teal{% elif s.status == 'patient_reviewed' %}b-blue{% elif s.status == 'draft' %}b-amber{% else %}b-gray{% endif %}">{{ s.get_status_display }}</span>
+{% for s in v.surgeries.all %}
+<div class="card" style="border-color:{% if s.status == 'draft' %}var(--amber-border){% elif s.status == 'patient_reviewed' %}var(--teal-border){% elif s.status == 'underway' %}rgba(124,58,237,.3){% elif s.status == 'pending' %}var(--border){% else %}var(--border){% endif %}">
+  <div class="card-h" style="{% if s.status == 'draft' %}background:var(--amber-glow){% elif s.status == 'patient_reviewed' %}background:var(--teal-glow){% elif s.status == 'underway' %}background:rgba(124,58,237,.08){% elif s.status == 'pending' %}background:var(--surface2){% endif %}">
+    <span class="card-title">⚕ {{ s.procedure_name }}</span>
+    <span class="badge {% if s.status == 'paid' or s.status == 'completed' %}b-teal{% elif s.status == 'patient_reviewed' %}b-blue{% elif s.status == 'draft' %}b-amber{% elif s.status == 'pending' %}b-gray{% elif s.status == 'ended' %}b-teal{% else %}b-gray{% endif %}{% if s.status == 'underway' %}" style="background:rgba(124,58,237,.15);color:#7c3aed;border:1px solid rgba(124,58,237,.3){% endif %}">{{ s.get_status_display }}</span>
+  </div>
+  <div class="card-b">
+    {% if s.anesthesia_type %}<div class="txt-xs txt-dim mb-2">Anesthesia: {{ s.anesthesia_type }}</div>{% endif %}
+
+    <!-- Surgery fee breakdown -->
+    {% if s.surgery_fee %}
+    <div style="margin-bottom:10px;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm)">
+      <div style="font-weight:700;font-size:.78rem;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Surgery Fee</div>
+      {% with surg_pays=s.payments.all %}
+      {% if surg_pays %}
+      {% for p in surg_pays %}{% if p.payment_type == 'surgery' %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span class="txt-xs txt-dim">Part {{ p.part_number }} of {{ p.total_parts }}</span>
+        <div style="display:flex;align-items:center;gap:7px">
+          <span class="mono txt-sm fw-7">₦{{ p.amount|floatformat:0 }}</span>
+          {% if p.is_paid %}<span class="badge b-teal" style="font-size:.6rem">Paid</span>{% else %}<span class="badge b-amber" style="font-size:.6rem">Pending</span>{% endif %}
+        </div>
       </div>
-      {% if s.anesthesia_type %}<div class="txt-xs txt-dim">Anesthesia: {{ s.anesthesia_type }}</div>{% endif %}
-      {% if s.status == 'draft' %}<button class="btn btn-amber btn-xs mt-1" onclick="C.modal('srev{{ s.id }}')">Review & Sign →</button>{% endif %}
+      {% endif %}{% endfor %}
+      {% else %}
+      <div class="txt-sm fw-7 mono">₦{{ s.surgery_fee|floatformat:0 }} <span class="txt-muted" style="font-weight:400;font-size:.75rem">(awaiting your consent)</span></div>
+      {% endif %}
+      {% endwith %}
+    </div>
+    {% endif %}
+
+    <!-- Required drugs -->
+    {% if s.surgery_drugs.all %}
+    <div class="sl" style="margin-top:0">Required Drugs <span class="txt-muted" style="font-size:.7rem;text-transform:none;font-weight:400;letter-spacing:0">(full payment required)</span></div>
+    {% for sd in s.surgery_drugs.all %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="txt-xs txt-dim">{{ sd.drug_name }} ×{{ sd.quantity }}{% if sd.dosage %} — {{ sd.dosage }}{% endif %}</span>
+      <span class="mono txt-xs fw-7">₦{{ sd.price_at_time|floatformat:0 }}</span>
     </div>
     {% endfor %}
+    {% endif %}
+
+    <!-- Required lab tests -->
+    {% if s.surgery_labs.all %}
+    <div class="sl">Required Lab Tests <span class="txt-muted" style="font-size:.7rem;text-transform:none;font-weight:400;letter-spacing:0">(full payment required)</span></div>
+    {% for sl in s.surgery_labs.all %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="txt-xs txt-dim">{{ sl.test_name }}</span>
+      <span class="mono txt-xs fw-7">₦{{ sl.price_at_time|floatformat:0 }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- Post-surgery admission -->
+    {% if s.admission %}
+    <div class="sl">Post-Surgery Admission</div>
+    <div style="padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm)">
+      <div class="txt-xs fw-7">{{ s.admission.get_ward_display }} — Bed {{ s.admission.bed_number }}</div>
+      <div class="txt-xs txt-dim">₦{{ s.admission.daily_ward_fee|floatformat:0 }}/day · Total ₦{{ s.admission.total_admission_fee|floatformat:0 }}{% if s.admission.discount_amount %} · Discount ₦{{ s.admission.discount_amount|floatformat:0 }}{% endif %}</div>
+      {% if s.admission.admission_fee_parts > 1 %}
+      <div class="txt-xs txt-muted mt-1">{{ s.admission.admission_fee_parts }} instalments (one per day)</div>
+      {% with adm_pays=s.payments.all %}
+      {% for p in adm_pays %}{% if p.payment_type == 'admission' %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-top:1px solid var(--border)">
+        <span class="txt-xs txt-dim">Day {{ p.part_number }} of {{ p.total_parts }}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="mono txt-xs fw-7">₦{{ p.amount|floatformat:0 }}</span>
+          {% if p.is_paid %}<span class="badge b-teal" style="font-size:.58rem">Paid</span>{% else %}<span class="badge b-amber" style="font-size:.58rem">Pending</span>{% endif %}
+        </div>
+      </div>
+      {% endif %}{% endfor %}
+      {% endwith %}
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if s.status == 'draft' %}
+    <button class="btn btn-amber btn-sm mt-2 w-full" onclick="C.modal('srev{{ s.id }}')">Review All Details & Sign Consent →</button>
+    {% elif s.status == 'patient_reviewed' %}
+    <div class="alert a-info mt-2" style="font-size:.78rem">⏳ Your consent has been received. Awaiting payment confirmation to proceed.</div>
+    {% elif s.status == 'pending' %}
+    <div class="alert a-info mt-2" style="font-size:.78rem">✅ Payment confirmed. Surgery is scheduled — your doctor will begin when ready.</div>
+    {% if s.scheduled_at %}<div class="txt-xs txt-muted mt-1">Started: {{ s.scheduled_at|date:"d M Y, H:i" }}</div>{% endif %}
+    {% elif s.status == 'underway' %}
+    <div class="alert" style="background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);color:#7c3aed;font-size:.78rem;border-radius:var(--r-sm);padding:9px 12px;margin-top:8px">⚕ Surgery is currently underway.</div>
+    {% if s.scheduled_at %}<div class="txt-xs txt-muted mt-1">Started: {{ s.scheduled_at|date:"d M Y, H:i" }}</div>{% endif %}
+    {% elif s.status == 'ended' %}
+    <div class="alert a-ok mt-2" style="font-size:.78rem">✓ Surgery has ended. Please follow up with your doctor for post-op care.</div>
+    {% if s.scheduled_at %}<div class="txt-xs txt-muted mt-1">Started: {{ s.scheduled_at|date:"d M Y, H:i" }}</div>{% endif %}
+    {% if s.completed_at %}<div class="txt-xs txt-muted">Ended: {{ s.completed_at|date:"d M Y, H:i" }}</div>{% endif %}
+    {% elif s.status == 'completed' %}
+    <div class="alert a-ok mt-2" style="font-size:.78rem">✓ Surgery completed successfully.</div>
+    {% if s.completed_at %}<div class="txt-xs txt-muted mt-1">Completed: {{ s.completed_at|date:"d M Y, H:i" }}</div>{% endif %}
+    {% endif %}
   </div>
 </div>
+{% endfor %}
 {% endif %}
 
 </div><!-- end col 2 -->
@@ -275,24 +357,65 @@
 <div class="overlay" id="srev{{ s.id }}"><div class="modal modal-xl">
   <div class="modal-h"><div class="modal-title">Surgery Consent: {{ s.procedure_name }}</div><button class="modal-x" onclick="C.modal('srev{{ s.id }}',false)">×</button></div>
   <div class="modal-b">
-    <div class="alert a-warn mb-3">⚠ Please read carefully before signing. This is a legal document.</div>
+    <div class="alert a-warn mb-3">⚠ Please read all details carefully. By signing you agree to the procedure, payment obligations, and all terms below.</div>
     <div class="g2">
       {% if s.purpose_and_benefits %}<div class="fg span2"><label class="lbl">Purpose & Benefits</label><div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;font-size:.82rem">{{ s.purpose_and_benefits }}</div></div>{% endif %}
       {% if s.known_risks %}<div class="fg span2"><label class="lbl">Known Risks</label><div style="background:var(--red-glow);border:1px solid var(--red-border);border-radius:var(--r-sm);padding:10px;font-size:.82rem">{{ s.known_risks }}</div></div>{% endif %}
       {% if s.alternative_treatments %}<div class="fg span2"><label class="lbl">Alternatives</label><div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;font-size:.82rem">{{ s.alternative_treatments }}</div></div>{% endif %}
       {% if s.postop_instructions %}<div class="fg span2"><label class="lbl">Post-Op Instructions</label><div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;font-size:.82rem">{{ s.postop_instructions }}</div></div>{% endif %}
     </div>
+
+    <!-- Financial summary -->
+    <div class="sl">Financial Summary</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;margin-bottom:12px">
+      <!-- Surgery fee with part breakdown -->
+      <div style="padding:5px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between"><span class="txt-sm fw-7">Surgery Fee{% if s.surgery_fee_parts > 1 %} <span class="txt-muted" style="font-size:.73rem;font-weight:400">({{ s.surgery_fee_parts }} instalments)</span>{% endif %}</span><span class="mono txt-sm fw-7">₦{{ s.surgery_fee|floatformat:0 }}</span></div>
+        {% if s.surgery_fee_parts > 1 %}
+        <div class="txt-xs txt-muted mt-1">Approx. ₦{{ s.surgery_fee|divide_by:s.surgery_fee_parts|floatformat:0 }} per instalment — exact amounts set by doctor</div>
+        {% endif %}
+      </div>
+      {% if s.surgery_drugs.all %}
+      {% with drug_total=0 %}
+      <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <div class="txt-xs fw-7 txt-muted mb-1">Required Drugs (full payment)</div>
+        {% for sd in s.surgery_drugs.all %}
+        <div style="display:flex;justify-content:space-between"><span class="txt-xs txt-dim">{{ sd.drug_name }} ×{{ sd.quantity }}</span><span class="mono txt-xs">₦{{ sd.price_at_time|floatformat:0 }}</span></div>
+        {% endfor %}
+      </div>
+      {% endwith %}
+      {% endif %}
+      {% if s.surgery_labs.all %}
+      <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <div class="txt-xs fw-7 txt-muted mb-1">Required Lab Tests (full payment)</div>
+        {% for sl in s.surgery_labs.all %}
+        <div style="display:flex;justify-content:space-between"><span class="txt-xs txt-dim">{{ sl.test_name }}</span><span class="mono txt-xs">₦{{ sl.price_at_time|floatformat:0 }}</span></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if s.admission %}
+      <div style="padding:6px 0">
+        <div class="txt-xs fw-7 txt-muted mb-1">Post-Surgery Admission</div>
+        <div style="display:flex;justify-content:space-between"><span class="txt-xs txt-dim">{{ s.admission.get_ward_display }} · Bed {{ s.admission.bed_number }}</span><span class="mono txt-xs">₦{{ s.admission.total_admission_fee|floatformat:0 }}{% if s.admission.discount_amount %} (-₦{{ s.admission.discount_amount|floatformat:0 }}){% endif %}</span></div>
+        {% if s.admission.admission_fee_parts > 1 %}
+        <div class="txt-xs txt-muted mt-1">{{ s.admission.admission_fee_parts }} instalments · ~₦{{ s.admission.total_admission_fee|divide_by:s.admission.admission_fee_parts|floatformat:0 }}/day</div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
     <div class="fg"><label class="lbl">Questions (optional)</label><textarea class="inp" id="sqst{{ s.id }}" rows="2" placeholder="Any questions or concerns…"></textarea></div>
     <div class="sl">Patient Declaration</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:.8rem;line-height:1.5"><input type="checkbox" id="sc1_{{ s.id }}" style="margin-top:3px"> I understand the procedure, its risks and benefits, and consent to treatment</label>
-      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:.8rem;line-height:1.5"><input type="checkbox" id="sc2_{{ s.id }}" style="margin-top:3px"> I have been given opportunity to ask questions and my questions have been answered</label>
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:.8rem;line-height:1.5"><input type="checkbox" id="sc2_{{ s.id }}" style="margin-top:3px"> I understand my payment obligations and agree to pay as outlined above</label>
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:.8rem;line-height:1.5"><input type="checkbox" id="sc3_{{ s.id }}" style="margin-top:3px"> I voluntarily agree to this surgical procedure</label>
     </div>
     <div class="fg"><label class="lbl">Sign Full Name <span style="color:var(--red)">*</span></label><input class="inp" id="ssgn{{ s.id }}" placeholder="Type your full legal name to sign"></div>
   </div>
   <div class="modal-f">
     <button class="btn btn-ghost btn-sm" onclick="C.modal('srev{{ s.id }}',false)">Cancel</button>
+    <button class="btn btn-sm" style="background:var(--red-glow);color:var(--red);border:1px solid var(--red-border)" onclick="declineSurg({{ s.id }})">✕ Decline Surgery</button>
     <button class="btn btn-primary btn-sm" onclick="signSurg({{ s.id }})">Sign & Submit Consent</button>
   </div>
 </div></div>
@@ -308,15 +431,27 @@ async function signSurg(id){
   if(!c1||!c2||!c3){C.toast('Please check all declarations to proceed','err');return;}
   const name=document.getElementById('ssgn'+id)?.value?.trim();
   if(!name){C.toast('Please sign your full name','err');return;}
+  // Disable button to prevent duplicate submissions
+  const btn=document.querySelector(`[onclick="signSurg(${id})"]`);
+  if(btn){btn.disabled=true;btn.textContent='Submitting…';}
   const r=await C.post(`/records/api/surgery-review/${id}/`,{
     patient_full_name_signed:name,
     patient_questions:document.getElementById('sqst'+id)?.value||'',
     patient_understanding:'1',patient_voluntary:'1',patient_consent:'1'
   });
-  if(r.status==='ok'){C.toast('Consent submitted!','ok');C.modal('srev'+id,false);setTimeout(()=>location.reload(),400);}
-  else C.toast(r.error||'Submission failed — please try again','err');
+  if(r.status==='ok'){C.toast('Consent submitted!','ok');C.modal('srev'+id,false);location.reload();}
+  else{
+    if(btn){btn.disabled=false;btn.textContent='Sign & Submit Consent';}
+    C.toast(r.error||'Submission failed — please try again','err');
+  }
 }
-// Auto-refresh every 45s
-setTimeout(()=>location.reload(),45000);
+async function declineSurg(id){
+  if(!confirm('Are you sure you want to decline this surgery? The doctor will be notified.')) return;
+  const r=await C.post(`/records/api/surgery-decline/${id}/`);
+  if(r.status==='ok'){C.toast('Surgery declined','ok');C.modal('srev'+id,false);location.reload();}
+  else C.toast(r.error||'Could not decline — please try again','err');
+}
+// Auto-refresh every 45s to show live surgery/payment status updates
+setTimeout(() => location.reload(), 45000);
 </script>
 {% endblock %}

@@ -138,6 +138,8 @@ class WardAdmission(models.Model):
     total_admission_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     admitted_at = models.DateTimeField(null=True, blank=True)
     discharged_at = models.DateTimeField(null=True, blank=True)
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    admission_fee_parts = models.PositiveIntegerField(default=1)  # 1-5 instalments
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -182,6 +184,9 @@ class Surgery(models.Model):
     STATUS_CHOICES = [
         ('draft', 'Draft — Awaiting Patient Review'),
         ('patient_reviewed', 'Patient Reviewed — Awaiting Payment'),
+        ('pending', 'Pending — Awaiting Surgery'),
+        ('underway', 'Underway'),
+        ('ended', 'Ended'),
         ('paid', 'Paid — Scheduled'),
         ('scheduled', 'Scheduled'),
         ('completed', 'Completed'),
@@ -208,6 +213,10 @@ class Surgery(models.Model):
     patient_acknowledged = models.BooleanField(default=False)
     witness_name = models.CharField(max_length=100, blank=True)
     surgery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    surgery_fee_parts = models.PositiveIntegerField(default=1)  # 1-5 instalments
+    surgery_discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    surgery_drug_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    surgery_lab_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     patient_full_name_signed = models.CharField(max_length=200, blank=True)
     patient_signed_at = models.DateTimeField(null=True, blank=True)
     patient_questions = models.TextField(blank=True)
@@ -224,3 +233,25 @@ class Surgery(models.Model):
 
     def __str__(self):
         return f'Surgery #{self.pk} — {self.procedure_name}'
+
+
+class SurgeryDrug(models.Model):
+    surgery = models.ForeignKey(Surgery, on_delete=models.CASCADE, related_name='surgery_drugs')
+    drug = models.ForeignKey('pharmacy.Drug', null=True, blank=True, on_delete=models.SET_NULL)
+    drug_name = models.CharField(max_length=200)
+    dosage = models.CharField(max_length=200, blank=True)
+    quantity = models.PositiveIntegerField(default=1)
+    price_at_time = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    def __str__(self):
+        return f'{self.drug_name} x{self.quantity} for Surgery #{self.surgery_id}'
+
+
+class SurgeryLabTest(models.Model):
+    surgery = models.ForeignKey(Surgery, on_delete=models.CASCADE, related_name='surgery_labs')
+    test = models.ForeignKey('lab.LabTest', null=True, blank=True, on_delete=models.SET_NULL)
+    test_name = models.CharField(max_length=200)
+    price_at_time = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    def __str__(self):
+        return f'{self.test_name} for Surgery #{self.surgery_id}'
