@@ -7,30 +7,40 @@ from django.http import JsonResponse
 from django.db import transaction
 from django.db.models import Q
 from .models import User, ConsultingRoom, SPECIALIZATIONS
+import traceback
 
 
 def login_view(request):
     if request.method == 'POST':
-        username = request.POST.get('username', '').strip()
-        password = request.POST.get('password', '')
+        try:
+            username = request.POST.get('username', '').strip()
+            password = request.POST.get('password', '')
 
-        if not username or not password:
-            messages.error(request, 'Username and password are required.')
-            return render(request, 'login.html')
-
-        user = authenticate(request, username=username, password=password)
-        if user:
-            if not user.is_approved and not user.is_staff:
-                messages.error(request, 'Your account is pending approval.')
+            if not username or not password:
+                messages.error(request, 'Username and password are required.')
                 return render(request, 'login.html')
 
-            login(request, user)
-            request.session.cycle_key()
-            return redirect('dashboard')
+            user = authenticate(request, username=username, password=password)
+            if user:
+                if not user.is_approved and not user.is_staff:
+                    messages.error(request, 'Your account is pending approval.')
+                    return render(request, 'login.html')
 
-        messages.error(request, 'Invalid username or password.')
+                login(request, user)
+                request.session.cycle_key()
+                return redirect('dashboard')
+
+            messages.error(request, 'Invalid username or password.')
+            return render(request, 'login.html')
+
+        except Exception as e:
+            print("LOGIN ERROR:", str(e))
+            traceback.print_exc()
+            messages.error(request, f'Login failed: {e}')
+            return render(request, 'login.html')
 
     return render(request, 'login.html')
+
 
 def logout_view(request):
     logout(request)
@@ -39,36 +49,54 @@ def logout_view(request):
 
 def signup_view(request):
     if request.method == 'POST':
-        d = request.POST
-        username = d.get('username', '').strip()
-        password = d.get('password', '')
-        password2 = d.get('password2', '')
-        role = d.get('role', 'patient')
-        if password != password2:
-            messages.error(request, 'Passwords do not match.')
+        try:
+            d = request.POST
+            username = d.get('username', '').strip()
+            password = d.get('password', '')
+            password2 = d.get('password2', '')
+            role = d.get('role', 'patient')
+
+            if not username or not password:
+                messages.error(request, 'Username and password are required.')
+                return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
+
+            if password != password2:
+                messages.error(request, 'Passwords do not match.')
+                return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
+
+            if User.objects.filter(username=username).exists():
+                messages.error(request, 'Username already taken.')
+                return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
+
+            user = User.objects.create_user(
+                username=username,
+                password=password,
+                first_name=d.get('first_name', ''),
+                last_name=d.get('last_name', ''),
+                email=d.get('email', ''),
+                role=role,
+                phone=d.get('phone', ''),
+                preferred_name=d.get('preferred_name', ''),
+            )
+
+            if role == 'doctor':
+                user.doctor_type = d.get('doctor_type', 'general')
+                user.specialization = d.get('specialization', '')
+                user.license_number = d.get('license_number', '')
+
+            if role == 'patient':
+                user.is_approved = True
+
+            user.save()
+            messages.success(request, 'Account created successfully! Please sign in.')
+            return redirect('login')
+
+        except Exception as e:
+            print("SIGNUP ERROR:", str(e))
+            traceback.print_exc()
+            messages.error(request, f'Signup failed: {e}')
             return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
-        if User.objects.filter(username=username).exists():
-            messages.error(request, 'Username already taken.')
-            return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
-        user = User.objects.create_user(
-            username=username, password=password,
-            first_name=d.get('first_name', ''),
-            last_name=d.get('last_name', ''),
-            email=d.get('email', ''),
-            role=role,
-            phone=d.get('phone', ''),
-            preferred_name=d.get('preferred_name', ''),
-        )
-        if role == 'doctor':
-            user.doctor_type = d.get('doctor_type', 'general')
-            user.specialization = d.get('specialization', '')
-            user.license_number = d.get('license_number', '')
-        if role == 'patient':
-            user.is_approved = True
-        user.save()
-        # Bug fix: DON'T auto-login patients, redirect to login with success message
-        messages.success(request, 'Account created successfully! Please sign in.')
-        return redirect('login')
+
     return render(request, 'signup.html', {'specializations': SPECIALIZATIONS})
 
 
