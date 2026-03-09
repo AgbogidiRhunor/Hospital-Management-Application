@@ -146,7 +146,7 @@ def dashboard(request):
     return redirect('login')
 
 
-# DOCTOR DASHBOARD
+# ─── DOCTOR ─────────────────────────────────────────────────────────────────────
 @login_required
 def doctor_dashboard(request):
     if not _is_role(request.user, 'doctor'):
@@ -248,14 +248,17 @@ def toggle_availability(request):
                 status=400,
             )
 
-    setattr(user, field, not getattr(user, field))
+    new_value = not getattr(user, field)
+    setattr(user, field, new_value)
 
-    if field == 'is_available' and not user.is_available and user.role == 'doctor':
+    # FIX: clear consulting_room when doctor goes off-duty
+    save_fields = [field]
+    if field == 'is_available' and not new_value and user.role == 'doctor':
         user.consulting_room = None
+        save_fields.append('consulting_room')
 
-    user.save(update_fields=[field, 'consulting_room'] if field == 'is_available' and not user.is_available and user.role == 'doctor' else [field])
-
-    return JsonResponse({'status': 'ok', 'value': getattr(user, field)})
+    user.save(update_fields=save_fields)
+    return JsonResponse({'status': 'ok', 'value': new_value})
 
 
 @login_required
@@ -557,8 +560,10 @@ def create_visit(request):
 
     with transaction.atomic():
         today = timezone.now().date()
+        # FIX: select_for_update prevents race condition on queue_number
         last_q = (
-            PatientVisit.objects.filter(created_at__date=today)
+            PatientVisit.objects.select_for_update()
+            .filter(created_at__date=today)
             .order_by('-queue_number')
             .values_list('queue_number', flat=True)
             .first()
@@ -612,7 +617,6 @@ def patient_dashboard(request):
                 'surgeries__admission',
                 'surgeries__payments',
                 'admissions__prescriptions__items__drug',
-                'admissions__visit__lab_requests__tests__test',
                 'admissions__payments',
             )
             .first()
@@ -694,7 +698,8 @@ def patient_profile(request):
         u.occupation = d.get('occupation', u.occupation).strip()
         u.marital_status = d.get('marital_status', u.marital_status)
         u.nationality = d.get('nationality', u.nationality).strip()
-        u.religion = d.get('religiion', d.get('religion', u.religion)).strip()
+        # FIX: corrected typo 'religiion' → 'religion'
+        u.religion = d.get('religion', u.religion).strip()
         u.next_of_kin_name = d.get('next_of_kin_name', u.next_of_kin_name).strip()
         u.next_of_kin_phone = d.get('next_of_kin_phone', u.next_of_kin_phone).strip()
         u.next_of_kin_relationship = d.get('next_of_kin_relationship', u.next_of_kin_relationship).strip()
@@ -713,7 +718,18 @@ def patient_profile(request):
         u.has_support_person = d.get('has_support_person') == 'yes'
         u.has_legal_guardian = d.get('has_legal_guardian') == 'yes'
 
-        u.save()
+        # FIX: only save the profile fields — never touch password, role, is_staff, etc.
+        u.save(update_fields=[
+            'first_name', 'last_name', 'preferred_name', 'email', 'phone',
+            'address', 'gender', 'date_of_birth', 'blood_group', 'genotype',
+            'allergies', 'medical_history', 'current_medications', 'family_history',
+            'surgical_history', 'immunizations', 'occupation', 'marital_status',
+            'nationality', 'religion', 'next_of_kin_name', 'next_of_kin_phone',
+            'next_of_kin_relationship', 'emergency_contact_name', 'emergency_contact_phone',
+            'emergency_contact_relationship', 'disabilities', 'home_phone', 'work_phone',
+            'temporary_address', 'employer', 'sex_at_birth', 'has_support_person',
+            'has_legal_guardian',
+        ])
         return JsonResponse({'status': 'ok'})
 
     from management.models import BLOOD_GROUPS, GENOTYPES
