@@ -1,4 +1,4 @@
-# HealthPlus V3 — Hospital Management System
+# HealthPlus — Hospital Management System
 
 ## Fresh Install
 
