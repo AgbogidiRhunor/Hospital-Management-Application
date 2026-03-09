@@ -606,7 +606,7 @@ def patient_dashboard(request):
         active_visit = (
             PatientVisit.objects.filter(patient=request.user)
             .exclude(status='completed')
-            .select_related('doctor', 'nurse', 'accountant')
+            .select_related('doctor', 'nurse', 'accountant', 'vitals')
             .prefetch_related(
                 'doctor_notes',
                 'payments',
