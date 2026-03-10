@@ -526,6 +526,6 @@ async function viewPatient(pid){
 }
 
 // Auto-refresh every 50s for real-time drug updates
-location.reload();
+location.reload&&setInterval(()=>location.reload(),50000);
 </script>
 {% endblock %}
