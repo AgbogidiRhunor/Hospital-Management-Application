@@ -1,25 +1,9 @@
-#!/usr/bin/env python
-"""
-Run after migrations: python seed.py
-Seeds consulting rooms, lab tests, and drugs.
-"""
-import os, sys, django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-django.setup()
-
+from django.core.management.base import BaseCommand
 from management.models import ConsultingRoom
 from lab.models import LabTest
 from pharmacy.models import Drug
 
-# Consulting Rooms
-print("Creating consulting rooms...")
-for i in range(1, 8):
-    ConsultingRoom.objects.get_or_create(number=i, defaults={'name': f'Consulting Room {i}'})
-print(f"  Created 7 consulting rooms")
 
-# Lab Tests
-print("Creating lab tests...")
 LAB_TESTS = [
     ('Full Blood Count', 'Haematology', 3500),
     ('Erythrocyte Sedimentation Rate (ESR)', 'Haematology', 2500),
@@ -47,12 +31,7 @@ LAB_TESTS = [
     ('Rheumatoid Factor', 'Serology', 3500),
     ('Sputum AFB', 'Microbiology', 3000),
 ]
-for name, category, price in LAB_TESTS:
-    LabTest.objects.get_or_create(name=name, defaults={'category': category, 'price': price})
-print(f"  Created {len(LAB_TESTS)} lab tests")
 
-# Drugs
-print("Creating drugs...")
 DRUGS = [
     ('Paracetamol', 'Tablet', '500mg', 50),
     ('Ibuprofen', 'Tablet', '400mg', 80),
@@ -95,11 +74,74 @@ DRUGS = [
     ('Carbamazepine', 'Tablet', '200mg', 100),
     ('Haloperidol', 'Tablet', '5mg', 100),
 ]
-for name, form, strength, price in DRUGS:
-    Drug.objects.get_or_create(name=name, defaults={'dosage_form': form, 'strength': strength, 'price': price})
-print(f"  Created {len(DRUGS)} drugs")
 
-print("\n✅ Seed complete!")
-print("\nNext steps:")
-print("  python manage.py createsuperuser")
-print("  python manage.py runserver")
+
+class Command(BaseCommand):
+    help = "Seed consulting rooms, lab tests, and drugs"
+
+    def handle(self, *args, **options):
+        self.stdout.write("Creating consulting rooms...")
+        room_created = 0
+        room_existing = 0
+        for i in range(1, 8):
+            _, created = ConsultingRoom.objects.get_or_create(
+                number=i,
+                defaults={'name': f'Consulting Room {i}'}
+            )
+            if created:
+                room_created += 1
+            else:
+                room_existing += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Consulting rooms done. Created: {room_created}, Existing: {room_existing}"
+            )
+        )
+
+        self.stdout.write("Creating lab tests...")
+        lab_created = 0
+        lab_existing = 0
+        for name, category, price in LAB_TESTS:
+            _, created = LabTest.objects.get_or_create(
+                name=name,
+                defaults={
+                    'category': category,
+                    'price': price,
+                }
+            )
+            if created:
+                lab_created += 1
+            else:
+                lab_existing += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Lab tests done. Created: {lab_created}, Existing: {lab_existing}"
+            )
+        )
+
+        self.stdout.write("Creating drugs...")
+        drug_created = 0
+        drug_existing = 0
+        for name, dosage_form, strength, price in DRUGS:
+            _, created = Drug.objects.get_or_create(
+                name=name,
+                defaults={
+                    'dosage_form': dosage_form,
+                    'strength': strength,
+                    'price': price,
+                }
+            )
+            if created:
+                drug_created += 1
+            else:
+                drug_existing += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Drugs done. Created: {drug_created}, Existing: {drug_existing}"
+            )
+        )
+
+        self.stdout.write(self.style.SUCCESS("✅ Seed complete!"))
