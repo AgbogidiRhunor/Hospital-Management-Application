@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -6,7 +7,6 @@
 <title>{% block title %}Rhudesi Hospital{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-{% load static %}
 <link rel="stylesheet" href="{% static 'css/style.css' %}">
 </head>
 <body>
@@ -60,6 +60,6 @@
 
 {% block js %}{% endblock %}
 
-<script src="{% static 'js/base.js' %}"></script>
+<script src="{% static 'js/app.js' %}"></script>
 </body>
 </html>
