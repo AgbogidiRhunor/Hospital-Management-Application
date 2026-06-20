@@ -12,31 +12,39 @@ jobs:
     steps:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.2.0
+
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+
           script: |
             set -e
 
-            echo "🚀 Deploying..."
+            echo "🚀 Starting deployment..."
 
             cd ~/hospitalmanagement
 
+            # Pull latest code safely
             git fetch origin main
             git reset --hard origin/main
 
+            # Activate virtual environment
             source venv/bin/activate
 
+            # Install dependencies
             pip install -r requirements.txt
 
+            # Django operations
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
 
+            # Restart services (IMPORTANT: restart, not reload)
             sudo systemctl restart gunicorn
             sudo systemctl restart nginx
 
             echo "✅ Deployment successful"
 
+            # Health check
             echo "🔍 Checking site..."
             curl -I https://hospitalmanagement.xyz || true
