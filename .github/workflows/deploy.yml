@@ -17,7 +17,11 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/hospitalmanagement
+            set -e
+
+            echo "Deploying..."
+
+            cd ~/hospitalmanagement || exit 1
 
             git pull origin main
 
@@ -29,3 +33,5 @@ jobs:
 
             sudo systemctl restart gunicorn
             sudo systemctl restart nginx
+
+            echo "Deployment successful"
