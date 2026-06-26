@@ -1,101 +1,240 @@
+{% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rhudesi Hospital — Sign Up</title>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign Up — Rhudesi Hospital</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/style.css' %}">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{min-height:100%;font-family:'Nunito',sans-serif;font-size:14px;background:linear-gradient(135deg,#E8F4F8 0%,#F0F6FF 50%,#EAF5F0 100%);padding:32px 16px;-webkit-font-smoothing:antialiased}
-.box{background:#fff;border:1.5px solid #DDE2EC;border-radius:16px;max-width:520px;margin:0 auto;box-shadow:0 8px 40px rgba(0,0,0,.1);overflow:hidden}
-.box-head{background:linear-gradient(135deg,#0B2240,#0B4A45);padding:28px 30px}
-.bh-logo{font-size:1.1rem;font-weight:900;color:#fff;letter-spacing:-.2px}
-.bh-logo span{color:#00D4C8}
-.bh-sub{font-size:.72rem;color:rgba(255,255,255,.5);font-weight:600;margin-top:2px}
-.box-body{padding:28px 30px}
-h2{font-size:1.3rem;font-weight:900;color:#1A2332;margin-bottom:3px;letter-spacing:-.3px}
-.sub{font-size:.8rem;color:#8A9AB5;margin-bottom:20px;font-weight:600}
-/* roles */
-.role-lbl{font-size:.68rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#4A5568;display:block;margin-bottom:7px}
-.roles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:16px}
-.role-card{border:1.5px solid #DDE2EC;border-radius:8px;padding:10px 6px;text-align:center;cursor:pointer;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:3px}
-.role-card:hover{border-color:#0EA5A0;background:#E6F7F7}
-.role-card.active{border-color:#0EA5A0;background:#E6F7F7;box-shadow:0 0 0 2px rgba(14,165,160,.2)}
-.role-card input{display:none}
-.role-ico{font-size:1.2rem;line-height:1}
-.role-nm{font-size:.67rem;font-weight:800;color:#4A5568}
-.role-card.active .role-nm{color:#0EA5A0}
-/* form */
-.fg{margin-bottom:12px}.fg:last-of-type{margin-bottom:0}
-.lbl{display:block;font-size:.68rem;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#4A5568;margin-bottom:4px}
-.inp{width:100%;background:#F7F9FC;border:1.5px solid #DDE2EC;border-radius:6px;padding:9px 12px;color:#1A2332;font-family:'Nunito',sans-serif;font-size:.87rem;font-weight:700;transition:.15s}
-.inp:focus{outline:none;border-color:#0EA5A0;box-shadow:0 0 0 3px rgba(14,165,160,.1);background:#fff}
-.inp::placeholder{color:#B0BBD0;font-weight:400}
-select.inp option{background:#fff}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.doc-fields{display:none;background:#F7F9FC;border:1.5px solid #DDE2EC;border-radius:8px;padding:14px;margin-bottom:12px}
-.btn{width:100%;padding:11px;background:linear-gradient(135deg,#0EA5A0,#0B8A85);color:#fff;border:none;border-radius:7px;font-family:'Nunito',sans-serif;font-weight:800;font-size:.9rem;cursor:pointer;margin-top:14px;box-shadow:0 4px 14px rgba(14,165,160,.25);transition:.15s}
-.btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(14,165,160,.35)}
-.err{background:#FEF2F2;border:1.5px solid #FECACA;border-radius:6px;padding:9px 13px;font-size:.79rem;color:#DC2626;margin-bottom:12px;font-weight:700}
-.foot{text-align:center;margin-top:16px;font-size:.77rem;color:#8A9AB5;font-weight:600}
-.foot a{color:#0EA5A0;font-weight:800}
+.auth-wrap{min-height:100vh;display:grid;grid-template-columns:1fr 1fr}
+@media(max-width:768px){.auth-wrap{grid-template-columns:1fr}.auth-art{display:none!important}}
+
+.auth-art{
+  background:#0a0a0c;display:flex;flex-direction:column;
+  align-items:flex-start;justify-content:flex-end;padding:48px;
+  position:relative;overflow:hidden;
+}
+.auth-art-photo-slot{
+    position:absolute;inset:0;z-index:0;
+    background:var(--bg-elevated);
+    background-image:url("../static/img/signup.jpg");
+    background-size:cover;background-position:center; 
+}
+.auth-art-overlay{
+    position:absolute;
+    inset:0;
+    z-index:1;
+    background:linear-gradient(180deg,rgba(10,10,12,.3) 0%,rgba(10,10,12,.92) 100%)
+  }
+
+.auth-logo{
+    position:absolute;
+    top:40px;
+    left:48px;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    gap:11px
+  }
+
+.auth-logo-mark{
+    width:36px;
+    height:36px;
+    border-radius:var(--radius);
+    background:var(--accent)
+    ;display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:.95rem;
+    font-weight:900;
+    color:#0a0a0c
+  }
+
+.auth-logo-name{font-size:1.05rem;
+    font-weight:800;
+    color:#fff;
+    letter-spacing:-.4px
+  }
+
+.auth-art-content{
+    position:relative;
+    z-index:2}
+.auth-art-quote{font-size:1.7rem;font-weight:800;color:#fff;line-height:1.3;letter-spacing:-.8px;margin-bottom:14px}
+.auth-art-quote em{color:var(--accent);font-style:normal}
+.auth-art-sub{font-size:.86rem;color:rgba(255,255,255,.55);line-height:1.6;max-width:360px}
+
+.auth-form-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 28px;background:var(--bg)}
+.auth-box{width:100%;max-width:440px}
+.auth-header{margin-bottom:26px;text-align:center}
+.auth-title{font-size:1.5rem;font-weight:800;color:var(--text);letter-spacing:-.5px;margin-bottom:6px}
+.auth-sub{font-size:.83rem;color:var(--text-muted)}
+
+.avatar-upload{
+  display:flex;align-items:center;gap:14px;
+  margin-bottom:22px;padding:14px;
+  background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);
+}
+.avatar-preview{
+  width:60px;height:60px;border-radius:50%;flex-shrink:0;
+  background:var(--bg-elevated);border:2px dashed var(--border-strong);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.4rem;color:var(--text-muted);overflow:hidden;
+  background-size:cover;background-position:center;
+}
+.avatar-upload-text{flex:1}
+.avatar-upload-title{font-size:.82rem;font-weight:700;color:var(--text);margin-bottom:2px}
+.avatar-upload-sub{font-size:.72rem;color:var(--text-muted)}
+.avatar-upload-btn{
+  padding:6px 14px;border-radius:var(--radius-sm);
+  background:var(--bg-elevated);border:1px solid var(--border-strong);
+  font-size:.78rem;font-weight:600;color:var(--text);cursor:pointer;flex-shrink:0;
+}
+.avatar-upload-btn:hover{background:var(--bg-hover)}
+
+.btn-auth{
+  width:100%;padding:12px;border-radius:var(--radius);
+  font-size:.9rem;font-weight:700;
+  background:var(--accent);color:#0a0a0c;border:none;cursor:pointer;
+  transition:.2s;
+}
+.btn-auth:hover{background:var(--accent-hover);transform:translateY(-1px)}
+.btn-auth:disabled{opacity:.6;cursor:not-allowed;transform:none}
+
+.auth-error{
+  padding:11px 14px;border-radius:var(--radius);
+  background:var(--red-dim);border:1px solid var(--red-border);
+  color:var(--red);font-size:.82rem;margin-bottom:16px;
+}
+.auth-success{
+  padding:11px 14px;border-radius:var(--radius);
+  background:var(--teal-dim);border:1px solid var(--teal-border);
+  color:var(--teal);font-size:.82rem;margin-bottom:16px;
+}
+
+.auth-footer{text-align:center;margin-top:24px;font-size:.79rem;color:var(--text-muted)}
+.auth-footer a{color:var(--teal);font-weight:600}
+
+.auth-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:420px){.auth-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="box">
-  <div class="box-head">
-    <div class="bh-logo">Rhudesi<span>+</span> Hospital</div>
-    <div class="bh-sub">Patient Management System</div>
+
+<div class="auth-wrap">
+
+  <!-- ART PANEL — drop your image into .auth-art-photo-slot via the CSS comment above -->
+  <div class="auth-art">
+    <div class="auth-art-photo-slot"></div>
+    <div class="auth-art-overlay"></div>
+    <div class="auth-logo">
+      <div class="auth-logo-mark">R</div>
+      <span class="auth-logo-name">Rhudesi Hospital</span>
+    </div>
+    <div class="auth-art-content">
+      <div class="auth-art-quote">Your health record,<br><em>always with you.</em></div>
+      <div class="auth-art-sub">Create your patient account to track visits, view lab results, manage prescriptions, and review surgery consent — all in one place.</div>
+    </div>
   </div>
-  <div class="box-body">
-    <h2>Create your account</h2>
-    <p class="sub">Select your role and fill in your details below</p>
-    {% for msg in messages %}<div class="err">{{ msg }}</div>{% endfor %}
-    <form method="post">{% csrf_token %}
-      <label class="role-lbl">I am a</label>
-      <div class="roles">
-        <label class="role-card active" onclick="setRole('patient',this)"><input type="radio" name="role" value="patient" checked><div class="role-ico">🏥</div><div class="role-nm">Patient</div></label>
-        <label class="role-card" onclick="setRole('doctor',this)"><input type="radio" name="role" value="doctor"><div class="role-ico">👨‍⚕️</div><div class="role-nm">Doctor</div></label>
-        <label class="role-card" onclick="setRole('nurse',this)"><input type="radio" name="role" value="nurse"><div class="role-ico">👩‍⚕️</div><div class="role-nm">Nurse</div></label>
-        <label class="role-card" onclick="setRole('receptionist',this)"><input type="radio" name="role" value="receptionist"><div class="role-ico">🖥</div><div class="role-nm">Reception</div></label>
-        <label class="role-card" onclick="setRole('accountant',this)"><input type="radio" name="role" value="accountant"><div class="role-ico">💳</div><div class="role-nm">Accountant</div></label>
-        <label class="role-card" onclick="setRole('pharmacist',this)"><input type="radio" name="role" value="pharmacist"><div class="role-ico">💊</div><div class="role-nm">Pharmacist</div></label>
-        <label class="role-card" onclick="setRole('lab_attendant',this)"><input type="radio" name="role" value="lab_attendant"><div class="role-ico">🔬</div><div class="role-nm">Lab Tech</div></label>
+
+  <!-- FORM PANEL -->
+  <div class="auth-form-panel">
+    <div class="auth-box">
+      <div class="auth-header">
+        <div class="auth-title">Create your account</div>
+        <div class="auth-sub">Patient registration — staff accounts are created by hospital admin</div>
       </div>
-      <div class="g2">
-        <div class="fg"><label class="lbl">First Name</label><input name="first_name" class="inp" placeholder="First name"></div>
-        <div class="fg"><label class="lbl">Last Name</label><input name="last_name" class="inp" placeholder="Last name"></div>
-      </div>
-      <div class="fg"><label class="lbl">Username</label><input name="username" class="inp" placeholder="Choose a username" required></div>
-      <div class="g2">
-        <div class="fg"><label class="lbl">Password</label><input type="password" name="password" class="inp" placeholder="Password" required></div>
-        <div class="fg"><label class="lbl">Confirm</label><input type="password" name="password2" class="inp" placeholder="Repeat" required></div>
-      </div>
-      <div class="doc-fields" id="docFields">
-        <div class="g2">
-          <div class="fg"><label class="lbl">Doctor Type</label>
-            <select name="doctor_type" class="inp"><option value="general">General Practitioner</option><option value="specialist">Specialist</option></select>
+
+      {% if messages %}
+      {% for msg in messages %}
+      <div class="{% if 'success' in msg.tags %}auth-success{% else %}auth-error{% endif %}">{{ msg }}</div>
+      {% endfor %}
+      {% endif %}
+
+      <form method="post" enctype="multipart/form-data" id="signupForm">
+        {% csrf_token %}
+
+        <div class="avatar-upload">
+          <div class="avatar-preview" id="avatarPreview">📷</div>
+          <div class="avatar-upload-text">
+            <div class="avatar-upload-title">Profile photo</div>
+            <div class="avatar-upload-sub">Optional — you can add this later too</div>
           </div>
-          <div class="fg"><label class="lbl">Specialization</label>
-            <select name="specialization" class="inp">
-              <option value="">— None —</option>
-              {% for s in specializations %}<option value="{{ s.0 }}">{{ s.1 }}</option>{% endfor %}
-            </select>
+          <label class="avatar-upload-btn">
+            Upload
+            <input type="file" name="profile_photo" id="photoInput" accept="image/*" style="display:none">
+          </label>
+        </div>
+
+        <div class="auth-row">
+          <div class="fg">
+            <label class="label">First Name <span class="label-req">*</span></label>
+            <input class="inp" type="text" name="first_name" required>
+          </div>
+          <div class="fg">
+            <label class="label">Last Name <span class="label-req">*</span></label>
+            <input class="inp" type="text" name="last_name" required>
           </div>
         </div>
+
+        <div class="fg">
+          <label class="label">Username <span class="label-req">*</span></label>
+          <input class="inp" type="text" name="username" autocomplete="username" required>
+        </div>
+
+        <div class="fg">
+          <label class="label">Email</label>
+          <input class="inp" type="email" name="email" autocomplete="email">
+        </div>
+
+        <div class="fg">
+          <label class="label">Phone Number</label>
+          <input class="inp" type="tel" name="phone" placeholder="08012345678">
+        </div>
+
+        <div class="auth-row">
+          <div class="fg">
+            <label class="label">Password <span class="label-req">*</span></label>
+            <input class="inp" type="password" name="password" autocomplete="new-password" required minlength="8">
+          </div>
+          <div class="fg">
+            <label class="label">Confirm Password <span class="label-req">*</span></label>
+            <input class="inp" type="password" name="password2" autocomplete="new-password" required minlength="8">
+          </div>
+        </div>
+        <div class="inp-hint" style="margin-bottom:18px">At least 8 characters</div>
+
+        <button type="submit" class="btn-auth" id="signupBtn">Create Account</button>
+      </form>
+
+      <div class="auth-footer">
+        Already have an account? <a href="{% url 'login' %}">Sign in</a>
       </div>
-      <button type="submit" class="btn">Create Account →</button>
-    </form>
-    <div class="foot">Already have an account? <a href="{% url 'login' %}">Sign in</a></div>
+    </div>
   </div>
 </div>
+
 <script>
-function setRole(val,card){
-  document.querySelectorAll('.role-card').forEach(c=>c.classList.remove('active'));
-  card.classList.add('active');
-  card.querySelector('input').checked=true;
-  document.getElementById('docFields').style.display=val==='doctor'?'block':'none';
-}
+const photoInput = document.getElementById('photoInput');
+const preview = document.getElementById('avatarPreview');
+photoInput.addEventListener('change', () => {
+  const file = photoInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    preview.style.backgroundImage = `url(${e.target.result})`;
+    preview.textContent = '';
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('signupForm').addEventListener('submit', function(){
+  const btn = document.getElementById('signupBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating account…';
+});
 </script>
 </body>
 </html>

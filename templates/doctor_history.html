@@ -1,22 +1,114 @@
-{% extends "base.html" %}{% load hp_tags %}
-{% block title %}History — Rhudesi{% endblock %}{% block logo_suffix %}Doctor{% endblock %}{% block page_title %}Visit History{% endblock %}
+{% extends "base.html" %}
+{% load hp_tags %}
+{% block title %}History — Rhudesi{% endblock %}
+{% block logo_sub %}Medical{% endblock %}
+{% block role_label %}Doctor{% endblock %}
+
 {% block nav %}
-<a href="{% url 'doctor_dashboard' %}" class="sb-link"><span class="sb-link-ico">👥</span>Queue</a>
-<a href="{% url 'ward_dashboard' %}" class="sb-link"><span class="sb-link-ico">🛏</span>Ward</a>
-<a href="{% url 'doctor_history' %}" class="sb-link on"><span class="sb-link-ico">📂</span>History</a>
+<a href="{% url 'doctor_dashboard' %}" class="sb-item"><span class="sb-icon">👥</span> Queue</a>
+<a href="{% url 'ward_dashboard' %}" class="sb-item"><span class="sb-icon">🛏</span> Ward</a>
+<a href="{% url 'doctor_history' %}" class="sb-item active"><span class="sb-icon">📂</span> History</a>
 {% endblock %}
+
+{% block page_title %}Patient History{% endblock %}
+
 {% block content %}
-<div class="card"><div class="tbl-wrap"><table>
-  <thead><tr><th>#</th><th>Patient</th><th>Status</th><th>Notes</th><th>Rx</th><th>Labs</th><th>Date</th></tr></thead>
-  <tbody>{% if not visits %}<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text3)">No history</td></tr>{% endif %}
-  {% for v in visits %}<tr>
-    <td class="mono txt-muted">{{ v.queue_number }}</td>
-    <td class="fw-7">{{ v.patient.display_name }}</td>
-    <td><span class="badge {% if v.status == 'completed' %}b-teal{% else %}b-blue{% endif %}">{{ v.get_status_display }}</span></td>
-    <td class="txt-dim txt-sm">{{ v.doctor_notes.count }}</td>
-    <td class="txt-dim txt-sm">{{ v.prescriptions.count }}</td>
-    <td class="txt-dim txt-sm">{{ v.lab_requests.count }}</td>
-    <td class="txt-xs txt-muted">{{ v.created_at|date:"d M Y" }}</td>
-  </tr>{% endfor %}</tbody>
-</table></div></div>
+
+{% if not visits %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">📂</div>
+    <div class="empty-title">No completed visits yet</div>
+    <div class="empty-sub">Completed patient visits will appear here with full clinical records.</div>
+  </div>
+</div>
+{% else %}
+
+<div class="flex-col" style="gap:8px">
+{% for v in visits %}
+<div class="visit-card">
+  <div class="vc-header" onclick="toggleH('{{ v.id }}')">
+    <div class="vc-queue" style="font-size:.62rem">{{ v.created_at|date:"d M" }}</div>
+    <div class="vc-info">
+      <div class="vc-name">
+        {{ v.patient.display_name }}
+        <span class="badge b-teal">Completed</span>
+        {% if v.surgeries.all %}<span class="badge b-purple">⚕ Surgery</span>{% endif %}
+        {% if v.admissions.all %}<span class="badge b-blue">🛏 Admitted</span>{% endif %}
+      </div>
+      <div class="vc-meta">
+        {% if v.nurse %}<span>Nurse: {{ v.nurse.display_name }}</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.doctor_notes.all %}<span>{{ v.doctor_notes.count }} note{{ v.doctor_notes.count|pluralize }}</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.prescriptions.all %}<span>{{ v.prescriptions.count }} Rx</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.lab_requests.all %}<span>{{ v.lab_requests.count }} lab{{ v.lab_requests.count|pluralize }}</span><span class="vc-meta-dot"></span>{% endif %}
+        <span>{{ v.created_at|date:"d M Y" }}</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-shrink-0" onclick="event.stopPropagation()">
+      <a href="{% url 'download_visit_summary' v.id %}" target="_blank" class="btn btn-ghost btn-xs">🖨</a>
+      <svg id="hch{{ v.id }}" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--text-muted);transition:transform .2s"><path d="M3 5l4 4 4-4"/></svg>
+    </div>
+  </div>
+
+  <div class="vc-body" id="hb{{ v.id }}">
+    {% if v.doctor_notes.all %}
+    <div class="section-label">Clinical Notes</div>
+    <div class="timeline">
+      {% for n in v.doctor_notes.all %}
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-body">
+          <div class="tl-text">{{ n.note }}</div>
+          <div class="tl-time">{{ n.created_at|date:"d M Y, H:i" }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if v.prescriptions.all %}
+    <div class="section-label">Prescriptions</div>
+    {% for rx in v.prescriptions.all %}
+    <div style="padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:5px">
+      <div class="flex items-center justify-between mb-1">
+        <span class="fw-7 text-sm">Rx #{{ rx.id }}</span>
+        <span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}">{{ rx.get_status_display }}</span>
+      </div>
+      {% for item in rx.drugs.all %}
+      <div class="text-xs text-dim">{{ item.drug.name }} ×{{ item.quantity }}{% if item.dosage %} — {{ item.dosage }}{% endif %}</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if v.lab_requests.all %}
+    <div class="section-label">Lab Requests</div>
+    {% for lr in v.lab_requests.all %}
+    <div style="padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:5px">
+      <div class="flex items-center justify-between mb-1">
+        <span class="fw-7 text-sm">Lab #{{ lr.id }}</span>
+        <span class="badge {% if lr.status == 'completed' %}b-teal{% else %}b-amber{% endif %}">{{ lr.get_status_display }}</span>
+      </div>
+      {% for t in lr.tests.all %}
+      <div class="text-xs text-dim">{{ t.test.name }}{% if t.is_completed and t.result_note %} — <span style="color:var(--teal)">{{ t.result_note|truncatechars:60 }}</span>{% endif %}</div>
+      {% endfor %}
+      {% if lr.status == 'completed' %}<a href="{% url 'print_lab_results' lr.id %}" target="_blank" class="btn btn-ghost btn-xs mt-2">Full Report</a>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block js %}
+<script>
+function toggleH(id){
+  const b=document.getElementById('hb'+id),c=document.getElementById('hch'+id);
+  if(!b)return; const open=b.classList.toggle('open'); if(c)c.style.transform=open?'rotate(180deg)':'';
+}
+</script>
 {% endblock %}

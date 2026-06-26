@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% load hp_tags %}
+{% block title %}Inventory — Rhudesi{% endblock %}
+{% block logo_sub %}Pharmacy{% endblock %}
+{% block role_label %}Pharmacist{% endblock %}
+
+{% block nav %}
+<a href="{% url 'pharmacist_dashboard' %}" class="sb-item">
+  <span class="sb-icon">💊</span> Pending
+</a>
+<a href="{% url 'pharmacist_dispensed' %}" class="sb-item">
+  <span class="sb-icon">✅</span> Dispensed
+</a>
+<a href="{% url 'pharmacist_inventory' %}" class="sb-item active">
+  <span class="sb-icon">🗃</span> Inventory
+</a>
+{% endblock %}
+
+{% block page_title %}Drug Inventory{% endblock %}
+
+{% block content %}
+
+<!-- Add Drug -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <div class="card-title"><span class="card-title-icon">➕</span> Add New Drug</div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{% url 'add_drug' %}">
+      {% csrf_token %}
+      <div class="grid cols-3" style="gap:12px">
+        <div class="fg"><label class="label">Name <span class="label-req">*</span></label><input type="text" class="inp" name="name" placeholder="e.g. Amoxicillin" required></div>
+        <div class="fg"><label class="label">Strength</label><input type="text" class="inp" name="strength" placeholder="e.g. 500mg"></div>
+        <div class="fg"><label class="label">Dosage Form</label><input type="text" class="inp" name="dosage_form" placeholder="e.g. Tablet, Capsule, Syrup"></div>
+        <div class="fg"><label class="label">Price (₦) <span class="label-req">*</span></label><input type="number" class="inp mono" name="price" placeholder="0.00" step="0.01" required></div>
+        <div class="fg"><label class="label">Manufacturer</label><input type="text" class="inp" name="manufacturer" placeholder="e.g. GSK, Emzor"></div>
+        <div class="fg"><label class="label">Type</label>
+          <select class="inp" name="is_injection">
+            <option value="">Oral / Topical</option>
+            <option value="1">💉 Injection</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <button type="submit" class="btn btn-primary btn-sm">Add Drug</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Inventory table -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">
+      <span class="card-title-icon">🗃</span> All Drugs
+      <span class="badge b-gray" style="margin-left:4px">{{ drugs|length }}</span>
+    </div>
+    <input type="text" class="inp" id="drugFilter" placeholder="Search drugs…"
+      style="width:200px;padding:7px 10px;font-size:.82rem" oninput="filterDrugs(this.value)">
+  </div>
+
+  {% if drugs %}
+  <div class="table-wrap" style="border:none;border-radius:0">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Strength</th>
+          <th>Form</th>
+          <th>Price</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="drugTable">
+        {% for drug in drugs %}
+        <tr class="drug-row-table" data-name="{{ drug.name|lower }} {{ drug.strength|lower }} {{ drug.dosage_form|lower }}">
+          <td>
+            <div class="fw-7">{{ drug.name }}</div>
+            {% if drug.manufacturer %}<div class="text-xs text-muted">{{ drug.manufacturer }}</div>{% endif %}
+          </td>
+          <td class="text-dim">{{ drug.strength|default:"—" }}</td>
+          <td class="text-dim">{{ drug.dosage_form|default:"—" }}</td>
+          <td class="mono fw-6 text-teal">₦{{ drug.price|floatformat:0 }}</td>
+          <td>{% if drug.is_injection %}<span class="badge b-blue">💉 Injection</span>{% else %}<span class="badge b-gray">Oral</span>{% endif %}</td>
+          <td><span class="badge {% if drug.is_active %}b-teal{% else %}b-gray{% endif %}">{% if drug.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+          <td>
+            <div class="flex gap-2 justify-end">
+              <button class="btn btn-surface btn-xs" onclick="openEdit({{ drug.id }},'{{ drug.name|escapejs }}','{{ drug.strength|default:''|escapejs }}','{{ drug.dosage_form|default:''|escapejs }}','{{ drug.manufacturer|default:''|escapejs }}','{{ drug.price|default:0 }}','{{ drug.is_injection|yesno:'1,0' }}')">Edit</button>
+              <form method="post" action="{% url 'delete_drug' drug.id %}" style="display:inline" onsubmit="return confirm('Delete {{ drug.name|escapejs }}?')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger btn-xs">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">💊</div>
+    <div class="empty-title">No drugs in inventory</div>
+    <div class="empty-sub">Add your first drug using the form above.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Edit Modal -->
+<div class="overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Edit Drug</div>
+      <button class="modal-close" onclick="R.modal('editModal',false)">✕</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" id="editForm">
+        {% csrf_token %}
+        <div class="grid cols-2" style="gap:12px">
+          <div class="fg col-span-2"><label class="label">Name <span class="label-req">*</span></label><input type="text" class="inp" name="name" id="e_name" required></div>
+          <div class="fg"><label class="label">Strength</label><input type="text" class="inp" name="strength" id="e_strength"></div>
+          <div class="fg"><label class="label">Dosage Form</label><input type="text" class="inp" name="dosage_form" id="e_form"></div>
+          <div class="fg"><label class="label">Price (₦)</label><input type="number" class="inp mono" name="price" id="e_price" step="0.01"></div>
+          <div class="fg"><label class="label">Manufacturer</label><input type="text" class="inp" name="manufacturer" id="e_mfr"></div>
+          <div class="fg col-span-2"><label class="label">Type</label>
+            <select class="inp" name="is_injection" id="e_inj">
+              <option value="">Oral / Topical</option>
+              <option value="1">💉 Injection</option>
+            </select>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="R.modal('editModal',false)">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('editForm').submit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block js %}
+<script>
+function filterDrugs(q){
+  q = q.toLowerCase();
+  document.querySelectorAll('.drug-row-table').forEach(r => {
+    r.style.display = r.dataset.name.includes(q) ? '' : 'none';
+  });
+}
+function openEdit(id, name, strength, form, mfr, price, inj){
+  document.getElementById('editForm').action = `/pharmacy/drug/${id}/edit/`;
+  document.getElementById('e_name').value = name;
+  document.getElementById('e_strength').value = strength;
+  document.getElementById('e_form').value = form;
+  document.getElementById('e_mfr').value = mfr;
+  document.getElementById('e_price').value = price;
+  document.getElementById('e_inj').value = inj;
+  R.modal('editModal');
+}
+</script>
+{% endblock %}

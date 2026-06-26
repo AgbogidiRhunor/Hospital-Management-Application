@@ -101,23 +101,23 @@ class DoctorNote(models.Model):
         ordering = ['created_at']
 
 
-# ─── WARD ADMISSIONS ────────────────────────────────────────────────────────────
+# WARD ADMISSIONS 
 
-WARD_CHOICES = [
-    ('general_male', 'General Male Ward'),
-    ('general_female', 'General Female Ward'),
-    ('general_children', 'General Children Ward'),
-    ('private', 'Private Ward'),
-    ('semi_private', 'Semi-Private Ward'),
-]
+class Ward(models.Model):
+    ward_code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    capacity = models.PositiveIntegerField(default=0)
 
-WARD_CAPACITY = {
-    'general_male': 6,
-    'general_female': 6,
-    'general_children': 6,
-    'private': 1,
-    'semi_private': 2,
-}
+    @property
+    def occupied_beds(self):
+        return self.wardadmission_set.filter(status='admitted').count()
+
+    @property
+    def available_beds(self):
+        return self.capacity - self.occupied_beds
+
+    def __str__(self):
+        return self.name
 
 
 class WardAdmission(models.Model):
@@ -132,7 +132,7 @@ class WardAdmission(models.Model):
     doctor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='admitted_patients')
     nurse = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='ward_assignments')
     accountant = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='admission_payments')
-    ward = models.CharField(max_length=30, choices=WARD_CHOICES)
+    ward = models.ForeignKey(Ward, on_delete=models.PROTECT)
     bed_number = models.PositiveIntegerField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_payment')
     admission_reason = models.TextField(blank=True)

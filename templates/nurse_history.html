@@ -1,23 +1,93 @@
-{% extends "base.html" %}{% load hp_tags %}
-{% block title %}History — Rhudesi{% endblock %}{% block logo_suffix %}Nurse{% endblock %}{% block page_title %}Patient History{% endblock %}
+{% extends "base.html" %}
+{% load hp_tags %}
+{% block title %}Nurse History — Rhudesi{% endblock %}
+{% block logo_sub %}Nursing{% endblock %}
+{% block role_label %}Nurse{% endblock %}
+
 {% block nav %}
-<a href="{% url 'nurse_dashboard' %}" class="sb-link"><span class="sb-link-ico">📋</span>Queue</a>
-<a href="{% url 'ward_dashboard' %}" class="sb-link"><span class="sb-link-ico">🛏</span>Ward</a>
-<a href="{% url 'nurse_history' %}" class="sb-link on"><span class="sb-link-ico">📂</span>History</a>
+<a href="{% url 'nurse_dashboard' %}" class="sb-item">
+  <span class="sb-icon">👥</span> Patients
+</a>
+<a href="{% url 'ward_dashboard' %}" class="sb-item">
+  <span class="sb-icon">🛏</span> Ward
+</a>
+<a href="{% url 'nurse_history' %}" class="sb-item active">
+  <span class="sb-icon">📂</span> History
+</a>
 {% endblock %}
+
+{% block page_title %}Patient History{% endblock %}
+
 {% block content %}
-<div class="card"><div class="tbl-wrap"><table>
-  <thead><tr><th>#</th><th>Patient</th><th>Doctor</th><th>BP</th><th>Pulse</th><th>Temp</th><th>Status</th><th>Date</th></tr></thead>
-  <tbody>{% if not history %}<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text3)">No history</td></tr>{% endif %}
-  {% for v in history %}<tr>
-    <td class="mono txt-muted">{{ v.queue_number }}</td>
-    <td class="fw-7">{{ v.patient.display_name }}</td>
-    <td class="txt-dim txt-sm">Dr. {{ v.doctor.get_full_name|default:v.doctor.username }}</td>
-    <td class="mono txt-sm">{% if v.vitals %}{{ v.vitals.blood_pressure|default:"—" }}{% else %}—{% endif %}</td>
-    <td class="mono txt-sm">{% if v.vitals %}{{ v.vitals.pulse_rate|default:"—" }}{% else %}—{% endif %}</td>
-    <td class="mono txt-sm">{% if v.vitals %}{{ v.vitals.temperature|default:"—" }}{% else %}—{% endif %}</td>
-    <td><span class="badge {% if v.status == 'completed' %}b-teal{% else %}b-blue{% endif %}">{{ v.get_status_display }}</span></td>
-    <td class="txt-xs txt-muted">{{ v.updated_at|date:"d M Y, H:i" }}</td>
-  </tr>{% endfor %}</tbody>
-</table></div></div>
+
+{% if not history %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">📂</div>
+    <div class="empty-title">No history yet</div>
+    <div class="empty-sub">Patients you have handled will appear here after they progress past vitals.</div>
+  </div>
+</div>
+{% else %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Patient</th>
+        <th>Doctor</th>
+        <th>Status</th>
+        <th>Vitals</th>
+        <th>Date</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in history %}
+      <tr>
+        <td>
+          <div class="fw-7">{{ v.patient.display_name }}</div>
+          <div class="text-xs text-muted">Visit #{{ v.id }}</div>
+        </td>
+        <td class="text-dim">Dr. {{ v.doctor.display_name|default:"—" }}</td>
+        <td>
+          <span class="badge {% if v.status == 'completed' %}b-teal{% elif v.status == 'with_doctor' %}b-blue{% else %}b-amber{% endif %}">
+            {{ v.get_status_display }}
+          </span>
+        </td>
+        <td>
+          {% if v.vitals %}
+          <span class="badge b-green">✓ Done</span>
+          {% else %}
+          <span class="badge b-gray">—</span>
+          {% endif %}
+        </td>
+        <td class="text-xs text-muted">{{ v.updated_at|date:"d M Y, H:i" }}</td>
+        <td>
+          <button class="btn btn-danger btn-xs" onclick="deleteHistory({{ v.id }}, this)" title="Remove from history">✕</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block js %}
+<script>
+async function deleteHistory(vid, btn){
+  if(!confirm('Remove this visit from your history?')) return;
+  btn.disabled = true;
+  const r = await R.post(`/api/nurse-delete-history/${vid}/`);
+  if(r.status === 'ok'){
+    R.toast('Removed from history', 'ok');
+    btn.closest('tr').style.opacity = '.3';
+    setTimeout(() => btn.closest('tr').remove(), 400);
+  } else {
+    R.toast(r.error || 'Error', 'err');
+    btn.disabled = false;
+  }
+}
+</script>
 {% endblock %}

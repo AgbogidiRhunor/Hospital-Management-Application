@@ -51,7 +51,16 @@ def make_range(value):
 
 @register.filter
 def ward_filter(admissions, ward_key):
-    return [a for a in admissions if a.ward == ward_key]
+    """
+    Return only admissions belonging to the given ward.
+    ward_key is the Ward ID coming from ward_choices.
+    """
+    try:
+        ward_id = int(ward_key)
+    except (TypeError, ValueError):
+        return []
+
+    return [a for a in admissions if a.ward and a.ward.id == ward_id]
 
 @register.filter
 def age(dob):

@@ -224,16 +224,29 @@
     <div class="modal-body">
       <div class="grid cols-2" style="gap:8px">
         {% for room in rooms %}
-        <div onclick="selectRoom({{ room.id }}, this)"
-          style="padding:14px;border:1px solid {% if doctor.consulting_room.id == room.id %}var(--accent-border){% else %}var(--border){% endif %};background:{% if doctor.consulting_room.id == room.id %}var(--accent-light){% else %}var(--surface2){% endif %};border-radius:var(--r-md);cursor:pointer;transition:.15s"
-          onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='{% if doctor.consulting_room.id == room.id %}var(--accent-border){% else %}var(--border){% endif %}'">
-          <div class="fw-7 text-sm">{{ room.display_name }}</div>
-          <div class="text-xs text-muted mt-1">{{ room.doctors.count }} doctor(s) assigned</div>
+        {% with is_mine=room.id|default:0 occupant=room.current_doc %}
+        <div {% if not occupant or occupant.id == doctor.id %}onclick="selectRoom({{ room.id }}, this)"{% endif %}
+          style="padding:14px;border:1px solid {% if doctor.consulting_room.id == room.id %}var(--accent-border){% elif occupant and occupant.id != doctor.id %}var(--red-border){% else %}var(--border){% endif %};background:{% if doctor.consulting_room.id == room.id %}var(--accent-dim){% elif occupant and occupant.id != doctor.id %}var(--red-dim){% else %}var(--bg-elevated){% endif %};border-radius:var(--radius);cursor:{% if occupant and occupant.id != doctor.id %}not-allowed{% else %}pointer{% endif %};transition:.15s"
+          {% if not occupant or occupant.id == doctor.id %}
+          onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='{% if doctor.consulting_room.id == room.id %}var(--accent-border){% else %}var(--border){% endif %}'"
+          {% endif %}>
+          <div class="flex items-center justify-between">
+            <div class="fw-7 text-sm">{{ room.display_name }}</div>
+            {% if doctor.consulting_room.id == room.id %}<span class="badge b-accent">You</span>{% elif occupant %}<span class="badge b-red">Occupied</span>{% else %}<span class="badge b-teal">Free</span>{% endif %}
+          </div>
+          {% if occupant and occupant.id != doctor.id %}
+          <div class="text-xs mt-1" style="color:var(--red)">Dr. {{ occupant.display_name }} is here</div>
+          {% elif occupant and occupant.id == doctor.id %}
+          <div class="text-xs text-muted mt-1">Currently yours</div>
+          {% else %}
+          <div class="text-xs text-muted mt-1">No doctor assigned</div>
+          {% endif %}
         </div>
+        {% endwith %}
         {% endfor %}
         <div onclick="selectRoom('', this)"
-          style="padding:14px;border:1px solid var(--border);background:var(--surface2);border-radius:var(--r-md);cursor:pointer;transition:.15s"
-          onmouseenter="this.style.background='var(--surface3)'">
+          style="padding:14px;border:1px solid var(--border);background:var(--bg-elevated);border-radius:var(--radius);cursor:pointer;transition:.15s"
+          onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background='var(--bg-elevated)'">
           <div class="fw-7 text-sm text-muted">No Room</div>
           <div class="text-xs text-muted mt-1">Clear room assignment</div>
         </div>
@@ -290,7 +303,7 @@
         <label class="label">Lab Scientist</label>
         <select class="inp" id="labAtt">
           <option value="">— Unassigned —</option>
-          {% for att in lab_attendants %}
+          {% for att in available_lab_attendants %}
           <option value="{{ att.id }}">{{ att.display_name }}{% if att.is_available %} ✓{% endif %}</option>
           {% endfor %}
         </select>
@@ -328,7 +341,7 @@
         <label class="label">Pharmacist</label>
         <select class="inp" id="rxPharm">
           <option value="">— Unassigned —</option>
-          {% for ph in pharmacists %}
+          {% for ph in available_pharmacists %}
           <option value="{{ ph.id }}">{{ ph.display_name }}</option>
           {% endfor %}
         </select>

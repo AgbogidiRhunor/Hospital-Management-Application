@@ -8,9 +8,15 @@
 {% if user.role == 'doctor' %}
 <a href="{% url 'doctor_dashboard' %}" class="sb-item"><span class="sb-icon">👥</span> Queue</a>
 {% endif %}
+{% if user.role == 'nurse' %}
+<a href="{% url 'nurse_dashboard' %}" class="sb-item"><span class="sb-icon">👥</span> Patients</a>
+{% endif %}
 <a href="{% url 'ward_dashboard' %}" class="sb-item active"><span class="sb-icon">🛏</span> Ward</a>
 {% if user.role == 'doctor' %}
 <a href="{% url 'doctor_history' %}" class="sb-item"><span class="sb-icon">📂</span> History</a>
+{% endif %}
+{% if user.role == 'nurse' %}
+<a href="{% url 'nurse_history' %}" class="sb-item"><span class="sb-icon">📂</span> History</a>
 {% endif %}
 {% endblock %}
 
@@ -94,6 +100,7 @@
 
     <!-- Expanded body -->
     <div class="vc-body" id="wb{{ adm.id }}">
+      <br>
       <div class="grid cols-2" style="gap:10px;margin-bottom:14px">
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-md);padding:13px">
           <div class="text-2xs fw-7 text-muted" style="text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Patient</div>
@@ -243,7 +250,7 @@
         <label class="label">Lab Scientist</label>
         <select class="inp" id="wLabAtt">
           <option value="">— Unassigned —</option>
-          {% for att in lab_attendants %}<option value="{{ att.id }}">{{ att.display_name }}{% if att.is_available %} ✓{% endif %}</option>{% endfor %}
+          {% for att in available_lab_attendants %}<option value="{{ att.id }}">{{ att.display_name }}{% if att.is_available %} ✓{% endif %}</option>{% endfor %}
         </select>
       </div>
       <div class="fg">

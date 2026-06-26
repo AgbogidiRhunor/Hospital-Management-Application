@@ -44,6 +44,26 @@ class LabRequest(models.Model):
     class Meta:
         ordering = ['-created_at']
 
+    @property
+    def tags(self):
+        names = self.tests.values_list('test__name', flat=True)
+
+        tags = []
+
+        for name in names:
+            name_lower = name.lower()
+
+            if "xray" in name_lower or "scan" in name_lower:
+                tags.append("Imaging")
+            elif "blood" in name_lower or "cbc" in name_lower:
+                tags.append("Blood Test")
+            elif "surgery" in name_lower:
+                tags.append("Surgery")
+            else:
+                tags.append("General")
+
+        return list(set(tags))
+
     def __str__(self):
         return f'Lab #{self.pk} — {self.patient.display_name}'
 
@@ -62,3 +82,4 @@ class LabRequestTest(models.Model):
 
     def __str__(self):
         return f'{self.test.name} — {"Done" if self.is_completed else "Pending"}'
+    

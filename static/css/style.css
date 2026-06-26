@@ -1,4 +1,4 @@
-/* Rhudesi Hospital Design System  by CollabNotes: dark editorial, Inter UI, tight & clean. */
+/* Rhudesi Hospital Design System */
 
 /* Variables */
 :root {
@@ -58,7 +58,7 @@
   --dur:           140ms;
 }
 
-/* ── Backward-compat aliases (so dashboard templates keep working) ── */
+/* Backward-compat aliases (so dashboard templates keep working) */
 :root {
   --surface:        var(--bg-surface);
   --surface2:       var(--bg-elevated);
@@ -86,9 +86,9 @@
   --shadow-md:      var(--shadow-lg);
 }
 
-/* ── Reset ── */
+/* Reset */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 17px; -webkit-font-smoothing: antialiased; }
+html { font-size: 15px; -webkit-font-smoothing: antialiased; }
 body {
   font-family: var(--font-ui);
   background: var(--bg);

@@ -51,6 +51,12 @@ GENDER_CHOICES = [
 
 BLOOD_GROUPS = [('A+','A+'),('A-','A-'),('B+','B+'),('B-','B-'),('O+','O+'),('O-','O-'),('AB+','AB+'),('AB-','AB-')]
 GENOTYPES = [('AA','AA'),('AS','AS'),('SS','SS'),('AC','AC'),('SC','SC')]
+MARITAL_STATUS_CHOICES = [
+    ('single', 'Single'),
+    ('married', 'Married'),
+    ('divorced', 'Divorced'),
+    ('widowed', 'Widowed'),
+]
 
 
 class ConsultingRoom(models.Model):
@@ -109,8 +115,11 @@ class User(AbstractUser):
     immunizations = models.TextField(blank=True)
     disabilities = models.TextField(blank=True)
     occupation = models.CharField(max_length=100, blank=True)
-    marital_status = models.CharField(max_length=20, blank=True,
-    choices=[('single','Single'),('married','Married'),('divorced','Divorced'),('widowed','Widowed')])
+    marital_status = models.CharField(
+    max_length=20,
+    blank=True,
+    choices=MARITAL_STATUS_CHOICES,
+        )
     nationality = models.CharField(max_length=60, blank=True)
     religion = models.CharField(max_length=60, blank=True)
     next_of_kin_name = models.CharField(max_length=100, blank=True)

@@ -1,182 +1,258 @@
 {% extends "base.html" %}
 {% load hp_tags %}
-{% block title %}Reception — Rhudesi{% endblock %}
-{% block logo_suffix %}Reception Desk{% endblock %}
-{% block page_title %}Register Visits{% endblock %}
+{% block title %}Receptionist — Rhudesi{% endblock %}
+{% block logo_sub %}Reception{% endblock %}
+{% block role_label %}Receptionist{% endblock %}
+
 {% block nav %}
-<a href="{% url 'receptionist_dashboard' %}" class="sb-link on"><span class="sb-ico">🖥</span>Dashboard</a>
+<a href="{% url 'receptionist_dashboard' %}" class="sb-item active">
+  <span class="sb-icon">🏥</span> New Visit
+</a>
+<a href="{% url 'receptionist_history' %}" class="sb-item">
+  <span class="sb-icon">📂</span> History
+</a>
 {% endblock %}
-{% block topbar_widgets %}
-<button class="btn btn-primary" onclick="C.modal('nvModal')">+ New Visit</button>
-{% endblock %}
+
+{% block page_title %}Register Visit{% endblock %}
+
 {% block content %}
+{% csrf_token %}
+
+<div class="grid cols-2" style="gap:16px;align-items:start">
+
+<!-- ═══ LEFT: Register form ═══ -->
 <div class="card">
-  <div class="card-h"><span class="card-title">Today's Visits</span><span class="badge b-gray">{{ recent_visits|length }}</span></div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>#</th><th>Patient</th><th>Doctor</th><th>Nurse</th><th>Status</th><th>Fee</th><th>Time</th></tr></thead>
-    <tbody>
-    {% if not recent_visits %}<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">No visits registered yet — click New Visit to start</td></tr>{% endif %}
-    {% for v in recent_visits %}
-    <tr>
-      <td class="mono txt-muted">{{ v.id }}</td>
-      <td style="font-weight:800">{{ v.patient.display_name }}</td>
-      <td class="txt-dim txt-sm">Dr. {{ v.doctor.get_full_name|default:v.doctor.username }}</td>
-      <td class="txt-dim txt-sm">{{ v.nurse.display_name|default:"—" }}</td>
-      <td><span class="badge {% if v.status == 'completed' %}b-teal{% elif v.status == 'pending_payment' %}b-amber{% else %}b-blue{% endif %}">{{ v.get_status_display }}</span></td>
-      <td class="mono txt-sm">₦{{ v.consultation_fee|floatformat:0 }}</td>
-      <td class="txt-xs txt-muted">{{ v.created_at|date:"d M, H:i" }}</td>
-    </tr>{% endfor %}
-    </tbody>
-  </table></div>
-</div>
+  <div class="card-header">
+    <div class="card-title"><span class="card-title-icon">➕</span> New Patient Visit</div>
+  </div>
+  <div class="card-body">
 
-<!-- NEW VISIT MODAL -->
-<div class="overlay" id="nvModal"><div class="modal modal-lg">
-  <div class="modal-h"><div class="modal-title">Register New Visit</div><button class="modal-x" onclick="C.modal('nvModal',false)">×</button></div>
-  <div class="modal-b">
-    <!-- hidden csrf for reference -->
-    {% csrf_token %}
+    <!-- Patient search -->
     <div class="fg">
-      <label class="lbl">Patient <span class="req">*</span></label>
+      <label class="label">Patient <span class="label-req">*</span></label>
       <div class="search-wrap">
-        <input class="inp" id="ptInp" placeholder="Search by name or username…" autocomplete="off">
-        <div class="search-drop" id="ptDrop"></div>
+        <input class="inp" id="patientInp" placeholder="Search by name or username…" autocomplete="off">
+        <div class="search-drop" id="patientDrop"></div>
       </div>
-      <input type="hidden" id="ptId">
-      <div id="ptSelected" style="margin-top:5px;font-size:.78rem;color:var(--teal);font-weight:700;display:none"></div>
+      <input type="hidden" id="patientId">
+      <div id="patientChip" style="display:none;margin-top:6px;padding:10px 12px;background:var(--teal-dim);border:1px solid var(--teal-border);border-radius:var(--radius);display:none;align-items:center;gap:8px">
+        <span style="font-size:.9rem">👤</span>
+        <span id="patientChipName" class="fw-7 text-sm"></span>
+        <button type="button" class="drug-remove" style="margin-left:auto" onclick="clearPatient()">✕</button>
+      </div>
     </div>
 
+    <!-- Doctor type toggle -->
     <div class="fg">
-      <label class="lbl">Doctor Type</label>
-      <div style="display:flex;gap:8px">
-        <label id="lblGen" style="flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--teal);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--teal);background:var(--teal-light);transition:.15s">
-          <input type="radio" name="dType" value="general" checked onchange="switchType('general')"> General Practitioner
-        </label>
-        <label id="lblSpec" style="flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--border2);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--text2);transition:.15s">
-          <input type="radio" name="dType" value="specialist" onchange="switchType('specialist')"> Specialist
-        </label>
+      <label class="label">Doctor Type</label>
+      <div class="flex gap-2">
+        <button type="button" id="btnGeneral" class="btn btn-primary btn-sm" onclick="setDoctorType('general')">General</button>
+        <button type="button" id="btnSpecialist" class="btn btn-ghost btn-sm" onclick="setDoctorType('specialist')">Specialist</button>
       </div>
     </div>
 
-    <div class="fg hidden" id="specRow">
-      <label class="lbl">Specialization</label>
-      <select class="inp" id="specSel" onchange="refreshDr()">
-        <option value="">— Any specialization —</option>
-        {% for s in specializations %}<option value="{{ s.0 }}">{{ s.1 }}</option>{% endfor %}
+    <!-- Specialization (shown for specialist) -->
+    <div class="fg" id="specWrap" style="display:none">
+      <label class="label">Specialization</label>
+      <select class="inp" id="specSelect" onchange="refreshDoctorSearch()">
+        <option value="">— All specializations —</option>
+        {% for code, label in specializations %}
+        <option value="{{ code }}">{{ label }}</option>
+        {% endfor %}
       </select>
     </div>
 
+    <!-- Doctor search -->
     <div class="fg">
-      <label class="lbl">Doctor <span class="req">*</span></label>
+      <label class="label">Doctor <span class="label-req">*</span></label>
       <div class="search-wrap">
-        <input class="inp" id="drInp" placeholder="Click to see all doctors, or type to filter…" autocomplete="off">
-        <div class="search-drop" id="drDrop"></div>
+        <input class="inp" id="doctorInp" placeholder="Search available doctors…" autocomplete="off">
+        <div class="search-drop" id="doctorDrop"></div>
       </div>
-      <input type="hidden" id="drId">
-      <div id="drSelected" style="margin-top:5px;font-size:.78rem;color:var(--teal);font-weight:700;display:none"></div>
+      <input type="hidden" id="doctorId">
+      <div id="doctorChip" style="display:none;margin-top:6px;padding:10px 12px;background:var(--accent-dim);border:1px solid var(--accent-border);border-radius:var(--radius);align-items:center;gap:8px">
+        <span>🩺</span>
+        <div style="flex:1;min-width:0">
+          <div id="doctorChipName" class="fw-7 text-sm"></div>
+          <div id="doctorChipRoom" class="text-xs text-muted"></div>
+        </div>
+        <button type="button" class="drug-remove" onclick="clearDoctor()">✕</button>
+      </div>
     </div>
 
-    <div class="g2">
-      <div class="fg">
-        <label class="lbl">Nurse <span class="req">*</span></label>
-        <select class="inp" id="nurseId">
-          <option value="">— Select nurse —</option>
-          {% for n in nurses %}<option value="{{ n.id }}">{{ n.display_name }}</option>{% endfor %}
-        </select>
-      </div>
-      <div class="fg">
-        <label class="lbl">Accountant <span class="req">*</span></label>
-        <select class="inp" id="acctId">
-          <option value="">— Select accountant —</option>
-          {% for a in accountants %}<option value="{{ a.id }}">{{ a.display_name }}</option>{% endfor %}
-        </select>
-      </div>
+    <!-- Nurse -->
+    <div class="fg">
+      <label class="label">Nurse <span class="label-req">*</span></label>
+      <select class="inp" id="nurseId">
+        <option value="">— Select nurse —</option>
+        {% for n in nurses %}
+        <option value="{{ n.id }}">{{ n.display_name }}</option>
+        {% endfor %}
+      </select>
     </div>
-    <div class="fg"><label class="lbl">Consultation Fee ₦</label><input class="inp" type="number" id="visitFee" placeholder="0.00" min="0" step="100"></div>
+
+    <!-- Accountant -->
+    <div class="fg">
+      <label class="label">Accountant <span class="label-req">*</span></label>
+      <select class="inp" id="accountantId">
+        <option value="">— Select accountant —</option>
+        {% for a in accountants %}
+        <option value="{{ a.id }}">{{ a.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Consultation fee -->
+    <div class="fg">
+      <label class="label">Consultation Fee (₦)</label>
+      <input class="inp mono" type="number" id="consultFee" placeholder="0" step="100" min="0">
+    </div>
+
+    <!-- Chief complaint -->
+    <div class="fg">
+      <label class="label">Chief Complaint</label>
+      <textarea class="inp" id="chiefComplaint" rows="2" placeholder="Brief reason for visit…"></textarea>
+    </div>
+
+    <button class="btn btn-primary w-full" id="registerBtn" onclick="createVisit(this)">
+      Register Visit
+    </button>
+
+    <div id="visitResult" style="display:none;margin-top:12px"></div>
+
   </div>
-  <div class="modal-f">
-    <button class="btn btn-ghost" onclick="C.modal('nvModal',false)">Cancel</button>
-    <button class="btn btn-primary" id="submitBtn" onclick="submitVisit()">Register Visit</button>
+</div>
+
+<!-- ═══ RIGHT: Recent visits ═══ -->
+<div>
+  <div class="card-header" style="padding:0 0 12px">
+    <div class="card-title" style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Today's Visits</div>
   </div>
-</div></div>
+  {% if recent_visits %}
+  <div class="flex-col" style="gap:6px">
+  {% for v in recent_visits %}
+  <div style="padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg)">
+    <div class="flex items-center justify-between gap-2">
+      <div>
+        <div class="fw-7 text-sm">{{ v.patient.display_name }}</div>
+        <div class="text-xs text-muted mt-1">
+          {% if v.doctor %}Dr. {{ v.doctor.display_name }}{% endif %}
+          {% if v.queue_number %} · #{{ v.queue_number }}{% endif %}
+          · {{ v.created_at|date:"H:i" }}
+        </div>
+      </div>
+      <span class="badge {% if v.status == 'completed' %}b-teal{% elif v.status == 'pending_payment' %}b-amber{% elif v.status == 'with_doctor' %}b-blue{% else %}b-gray{% endif %}">
+        {{ v.get_status_display }}
+      </span>
+    </div>
+  </div>
+  {% endfor %}
+  </div>
+  {% else %}
+  <div style="padding:32px 16px;text-align:center;color:var(--text-muted);font-size:.83rem">
+    No visits registered today yet.
+  </div>
+  {% endif %}
+</div>
+
+</div><!-- end grid -->
+
 {% endblock %}
+
 {% block js %}
 <script>
-let selPtId='',selDrId='',curType='general',drCtrl=null;
+let _doctorType = 'general';
+let _patientSearch = null;
+let _doctorSearch = null;
 
-window.addEventListener('DOMContentLoaded',()=>{
-  // Patient search
-  mkPatientSearch('ptInp','ptDrop',p=>{
-    selPtId=String(p.id);
-    document.getElementById('ptInp').value=p.name;
-    document.getElementById('ptId').value=selPtId;
-    const sel=document.getElementById('ptSelected');
-    sel.textContent='✓ '+p.name+' (@'+p.username+')';
-    sel.style.display='block';
+function setDoctorType(type){
+  _doctorType = type;
+  document.getElementById('btnGeneral').className = type === 'general' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('btnSpecialist').className = type === 'specialist' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('specWrap').style.display = type === 'specialist' ? '' : 'none';
+  clearDoctor();
+  refreshDoctorSearch();
+}
+
+function refreshDoctorSearch(){
+  if(_doctorSearch) _doctorSearch.refresh();
+}
+
+function clearPatient(){
+  document.getElementById('patientId').value = '';
+  document.getElementById('patientInp').value = '';
+  document.getElementById('patientChip').style.display = 'none';
+}
+
+function clearDoctor(){
+  document.getElementById('doctorId').value = '';
+  document.getElementById('doctorInp').value = '';
+  document.getElementById('doctorChip').style.display = 'none';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  _patientSearch = mkPatientSearch('patientInp', 'patientDrop', (p) => {
+    document.getElementById('patientId').value = p.id;
+    document.getElementById('patientInp').value = p.name;
+    document.getElementById('patientChipName').textContent = p.name + ' (@' + p.username + ')';
+    document.getElementById('patientChip').style.display = 'flex';
   });
-  // Doctor search — show all on focus
-  initDrSearch();
+
+  _doctorSearch = mkDoctorSearch(
+    'doctorInp', 'doctorDrop',
+    (d) => {
+      document.getElementById('doctorId').value = d.id;
+      document.getElementById('doctorInp').value = d.name;
+      document.getElementById('doctorChipName').textContent = d.name;
+      document.getElementById('doctorChipRoom').textContent = d.specialization || d.type || 'General Doctor';
+      if(d.room) document.getElementById('doctorChipRoom').textContent += ' · ' + d.room;
+      document.getElementById('doctorChip').style.display = 'flex';
+    },
+    () => _doctorType,
+    () => document.getElementById('specSelect')?.value || ''
+  );
 });
 
-function initDrSearch(){
-  drCtrl=mkDoctorSearch('drInp','drDrop',d=>{
-    selDrId=String(d.id);
-    document.getElementById('drInp').value=d.name;
-    document.getElementById('drId').value=selDrId;
-    const sel=document.getElementById('drSelected');
-    sel.textContent='✓ Dr. '+d.name+(d.specialization?' · '+d.specialization:'');
-    sel.style.display='block';
-  },()=>curType,()=>document.getElementById('specSel')?.value||'');
-}
+async function createVisit(btn){
+  const patientId = document.getElementById('patientId').value;
+  const doctorId = document.getElementById('doctorId').value;
+  const nurseId = document.getElementById('nurseId').value;
+  const accountantId = document.getElementById('accountantId').value;
 
-function switchType(t){
-  curType=t;
-  selDrId='';document.getElementById('drId').value='';document.getElementById('drInp').value='';document.getElementById('drSelected').style.display='none';
-  document.getElementById('specRow').classList.toggle('hidden',t!=='specialist');
-  // Update button styles
-  if(t==='general'){
-    document.getElementById('lblGen').style.cssText='flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--teal);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--teal);background:var(--teal-light);transition:.15s';
-    document.getElementById('lblSpec').style.cssText='flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--border2);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--text2);transition:.15s';
-  }else{
-    document.getElementById('lblSpec').style.cssText='flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--teal);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--teal);background:var(--teal-light);transition:.15s';
-    document.getElementById('lblGen').style.cssText='flex:1;display:flex;align-items:center;gap:7px;padding:9px 13px;border:1.5px solid var(--border2);border-radius:var(--r-sm);cursor:pointer;font-size:.83rem;font-weight:700;color:var(--text2);transition:.15s';
+  if(!patientId){ R.toast('Select a patient first', 'err'); return; }
+  if(!doctorId){ R.toast('Select a doctor first', 'err'); return; }
+  if(!nurseId){ R.toast('Select a nurse', 'err'); return; }
+  if(!accountantId){ R.toast('Select an accountant', 'err'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Registering…';
+
+  const r = await R.post('/api/create-visit/', {
+    patient_id: patientId,
+    doctor_id: doctorId,
+    nurse_id: nurseId,
+    accountant_id: accountantId,
+    consultation_fee: document.getElementById('consultFee').value || '0',
+    chief_complaint: document.getElementById('chiefComplaint').value,
+  });
+
+  if(r.status === 'ok'){
+    R.toast('Visit registered successfully!', 'ok');
+    const res = document.getElementById('visitResult');
+    res.style.display = 'block';
+    res.innerHTML = `<div class="alert a-ok"><span class="alert-icon">✓</span><div>Visit #${r.visit_id} created. Patient is waiting for payment confirmation from the accountant.</div></div>`;
+    // Reset form
+    clearPatient(); clearDoctor();
+    document.getElementById('consultFee').value = '';
+    document.getElementById('chiefComplaint').value = '';
+    document.getElementById('nurseId').value = '';
+    document.getElementById('accountantId').value = '';
+    setTimeout(() => location.reload(), 2000);
+  } else {
+    R.toast(r.error || 'Could not register visit', 'err');
   }
-  initDrSearch();setTimeout(()=>drCtrl?.refresh(),80);
-}
-
-function refreshDr(){selDrId='';document.getElementById('drId').value='';document.getElementById('drInp').value='';document.getElementById('drSelected').style.display='none';setTimeout(()=>drCtrl?.refresh(),80);}
-
-async function submitVisit(){
-  const ptId=document.getElementById('ptId').value||selPtId;
-  const drId=document.getElementById('drId').value||selDrId;
-  const nurseId=document.getElementById('nurseId').value;
-  const acctId=document.getElementById('acctId').value;
-  const fee=document.getElementById('visitFee').value||'0';
-
-  if(!ptId){C.toast('Please select a patient first','err');return;}
-  if(!drId){C.toast('Please select a doctor','err');return;}
-  if(!nurseId){C.toast('Please select a nurse','err');return;}
-  if(!acctId){C.toast('Please select an accountant','err');return;}
-
-  const btn=document.getElementById('submitBtn');
-  btn.disabled=true;btn.textContent='Registering…';
-
-  try{
-    const r=await C.post('/api/create-visit/',{
-      patient_id:ptId,doctor_id:drId,nurse_id:nurseId,accountant_id:acctId,consultation_fee:fee
-    });
-    if(r.status==='ok'){
-      C.toast('Visit registered successfully!','ok');
-      C.modal('nvModal',false);
-      setTimeout(()=>location.reload(),600);
-    }else{
-      C.toast(r.error||'Registration failed','err');
-      btn.disabled=false;btn.textContent='Register Visit';
-    }
-  }catch(e){
-    C.toast('Network error — try again','err');
-    btn.disabled=false;btn.textContent='Register Visit';
-  }
+  btn.disabled = false;
+  btn.textContent = 'Register Visit';
 }
 </script>
 {% endblock %}

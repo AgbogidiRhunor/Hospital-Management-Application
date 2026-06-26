@@ -11,51 +11,67 @@ from management.models import User
 def pharmacist_dashboard(request):
     if request.user.role != 'pharmacist':
         return redirect('dashboard')
+
     pharmacist = request.user
 
-    # Assigned to me, paid, not dispensed
     my_pending = Prescription.objects.filter(
-        pharmacist=pharmacist, status='paid'
+        pharmacist=pharmacist,
+        status='paid'
     ).prefetch_related('drugs__drug').select_related('patient', 'visit', 'doctor')
 
-    # Unassigned paid (any pharmacist can take)
     unassigned = Prescription.objects.filter(
-        pharmacist__isnull=True, status='paid'
+        pharmacist__isnull=True,
+        status='paid'
     ).prefetch_related('drugs__drug').select_related('patient', 'visit')
 
-    # Dispensed (not soft-deleted)
     dispensed = Prescription.objects.filter(
-        pharmacist=pharmacist, status='dispensed', pharmacist_deleted=False
+        pharmacist=pharmacist,
+        status='dispensed',
+        pharmacist_deleted=False
     ).prefetch_related('drugs__drug').select_related('patient').order_by('-dispensed_at')[:50]
 
-    drugs = Drug.objects.filter(is_active=True)
-
-    ctx = {
+    return render(request, 'pharmacist.html', {
         'my_pending': my_pending,
         'unassigned': unassigned,
         'dispensed': dispensed,
-        'drugs': drugs,
         'pharmacist': pharmacist,
-    }
-    return render(request, 'pharmacist.html', ctx)
+    })
 
 
 @login_required
 def dispense_prescription(request, rx_id):
-    if request.method == 'POST' and request.user.role == 'pharmacist':
-        rx = get_object_or_404(Prescription, pk=rx_id)
-        with transaction.atomic():
-            rx.status = 'dispensed'
-            rx.pharmacist = request.user
+    if request.method != 'POST' or request.user.role != 'pharmacist':
+        return JsonResponse({'error': 'forbidden'}, status=403)
+
+    # IMPORTANT: must be assigned to this pharmacist
+    rx = get_object_or_404(
+        Prescription,
+        pk=rx_id,
+        pharmacist=request.user,
+        status='paid'
+    )
+
+    status = request.POST.get('status', 'dispensed')
+
+    if status not in ('dispensed', 'rejected'):
+        return JsonResponse({'error': 'Invalid status'}, status=400)
+
+    note = request.POST.get('pharmacist_note', '').strip()
+
+    with transaction.atomic():
+        rx.status = status
+        rx.pharmacist_note = note
+
+        if status == 'dispensed':
             rx.dispensed_at = timezone.now()
-            rx.pharmacist_note = request.POST.get('note', '')
-            rx.save()
-            # Update visit status back to with_doctor so doctor can end session
+
             visit = rx.visit
             visit.status = 'with_doctor'
             visit.save()
-        return JsonResponse({'status': 'ok'})
-    return JsonResponse({'error': 'forbidden'}, status=403)
+
+        rx.save()
+
+    return JsonResponse({'status': 'ok'})
 
 
 @login_required
@@ -99,14 +115,26 @@ def drug_search(request):
 
 @login_required
 def take_prescription(request, rx_id):
-    """Pharmacist claims an unassigned prescription."""
-    if request.method == 'POST' and request.user.role == 'pharmacist':
-        rx = get_object_or_404(Prescription, pk=rx_id, pharmacist__isnull=True, status='paid')
+    if request.method != 'POST' or request.user.role != 'pharmacist':
+        return JsonResponse({'error': 'forbidden'}, status=403)
+
+    with transaction.atomic():
+        rx = (
+            Prescription.objects
+            .select_for_update()
+            .filter(pk=rx_id, pharmacist__isnull=True, status='paid')
+            .first()
+        )
+
+        if not rx:
+            return JsonResponse({
+                'error': 'Already taken by another pharmacist'
+            }, status=409)
+
         rx.pharmacist = request.user
         rx.save()
-        return JsonResponse({'status': 'ok'})
-    return JsonResponse({'error': 'forbidden'}, status=403)
 
+    return JsonResponse({'status': 'ok'})
 
 @login_required
 def add_drug(request):
@@ -161,3 +189,33 @@ def edit_drug(request, drug_id):
         drug.save()
         return JsonResponse({'status': 'ok'})
     return JsonResponse({'error': 'forbidden'}, status=403)
+
+
+@login_required
+def pharmacist_dispensed(request):
+    if request.user.role != 'pharmacist':
+        return redirect('dashboard_home')
+
+    dispensed = (
+        Prescription.objects.filter(
+            pharmacist=request.user,
+            status__in=['dispensed', 'rejected'],
+            dispensed_at__isnull=False   # IMPORTANT FIX
+        )
+        .select_related('patient', 'doctor')
+        .prefetch_related('drugs__drug')
+        .order_by('-dispensed_at')
+        [:100]
+    )
+
+    return render(request, 'pharmacist_dispensed.html', {
+        'dispensed': dispensed
+    })
+
+@login_required
+def pharmacist_inventory(request):
+    if request.user.role != 'pharmacist':
+        return redirect('dashboard_home')
+    from pharmacy.models import Drug
+    drugs = Drug.objects.all().order_by('name')
+    return render(request, 'pharmacist_inventory.html', {'drugs': drugs})
