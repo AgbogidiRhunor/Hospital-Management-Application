@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime
-
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -19,8 +18,9 @@ def home(request):
         return redirect('/dashboard/')
     return render(request, 'landing.html')
 
+
 def _render_signup(request, status=200):
-    return render(request, 'signup.html', {'specializations': SPECIALIZATIONS}, status=status)
+    return render(request, 'signup.html', {}, status=status)
 
 
 def _is_role(user, role):
@@ -71,54 +71,58 @@ def logout_view(request):
     return redirect('login')
 
 
+# PATIENT SELF-SIGNUP 
+# Patients are the ONLY role that can self-register. Every other role
+# (doctor, nurse, pharmacist, lab_attendant, receptionist, accountant) must
+# be created explicitly by an admin via /admin/, who also hands them their
+# login credentials directly. This view is intentionally patient-only —
+# there is no 'role' field exposed in the signup form.
 def signup_view(request):
     if request.method == 'POST':
         d = request.POST
         username = d.get('username', '').strip()
         password = d.get('password', '')
         password2 = d.get('password2', '')
-        role = d.get('role', 'patient').strip() or 'patient'
         email = d.get('email', '').strip()
+        first_name = d.get('first_name', '').strip()
+        last_name = d.get('last_name', '').strip()
+        phone = d.get('phone', '').strip()
 
-        if not username or not password:
-            messages.error(request, 'Username and password are required.')
+        if not username or not password or not first_name or not last_name:
+            messages.error(request, 'Please fill in all required fields.')
             return _render_signup(request)
 
         if password != password2:
             messages.error(request, 'Passwords do not match.')
             return _render_signup(request)
 
-        if User.objects.filter(username=username).exists():
+        if len(password) < 8:
+            messages.error(request, 'Password must be at least 8 characters.')
+            return _render_signup(request)
+
+        if User.objects.filter(username__iexact=username).exists():
             messages.error(request, 'Username already taken.')
             return _render_signup(request)
 
         if email and User.objects.filter(email__iexact=email).exists():
-            messages.error(request, 'Email already in use.')
+            messages.error(request, 'An account with this email already exists.')
             return _render_signup(request)
 
         try:
             user = User.objects.create_user(
                 username=username,
                 password=password,
-                first_name=d.get('first_name', '').strip(),
-                last_name=d.get('last_name', '').strip(),
+                first_name=first_name,
+                last_name=last_name,
                 email=email,
-                role=role,
-                phone=d.get('phone', '').strip(),
-                preferred_name=d.get('preferred_name', '').strip(),
+                role='patient',
+                phone=phone,
             )
-
-            if role == 'doctor':
-                user.doctor_type = d.get('doctor_type', 'general').strip() or 'general'
-                user.specialization = d.get('specialization', '').strip()
-                user.license_number = d.get('license_number', '').strip()
-
-            if role == 'patient':
-                user.is_approved = True
-
-            user.save()
+            # Patients are auto-approved — no admin gate needed for self-signup
+            user.is_approved = True
+            user.save(update_fields=['is_approved'])
         except Exception:
-            logger.exception("Signup failed for username=%s role=%s", username, role)
+            logger.exception("Patient signup failed for username=%s", username)
             messages.error(request, 'Unable to create account right now. Please try again.')
             return _render_signup(request)
 
@@ -150,13 +154,13 @@ def dashboard(request):
     return redirect('login')
 
 
-# ─── DOCTOR ─────────────────────────────────────────────────────────────────────
+# DOCTOR
 @login_required
 def doctor_dashboard(request):
     if not _is_role(request.user, 'doctor'):
         return redirect('dashboard_home')
 
-    from records.models import PatientVisit, WardAdmission
+    from records.models import PatientVisit, WardAdmission, Ward
 
     doctor = request.user
     admitted_visit_ids = WardAdmission.objects.filter(
@@ -181,6 +185,10 @@ def doctor_dashboard(request):
         .order_by('queue_number', 'created_at')
     )
 
+    # FIX: room.current_doc was being set but never had a usable related_name
+    # to count occupants. ConsultingRoom.current_doctor property already
+    # exists on the model (filters occupying_doctors by is_available) —
+    # use that consistently so the template can show who's in each room.
     rooms = ConsultingRoom.objects.filter(is_active=True)
     for room in rooms:
         room.current_doc = (
@@ -221,6 +229,8 @@ def doctor_dashboard(request):
         .order_by('ward', 'bed_number')
     )
 
+    ward_choices = Ward.objects.order_by("name").values_list("id", "name")
+
     ctx = {
         'visits': visits,
         'rooms': rooms,
@@ -229,6 +239,7 @@ def doctor_dashboard(request):
         'doctor': doctor,
         'waiting_count': waiting_count,
         'doctor_admissions': doctor_admissions,
+        'ward_choices': ward_choices,
     }
     return render(request, 'doctor.html', ctx)
 
@@ -255,7 +266,6 @@ def toggle_availability(request):
     new_value = not getattr(user, field)
     setattr(user, field, new_value)
 
-    # FIX: clear consulting_room when doctor goes off-duty
     save_fields = [field]
     if field == 'is_available' and not new_value and user.role == 'doctor':
         user.consulting_room = None
@@ -289,7 +299,7 @@ def select_consulting_room(request):
     )
     if other:
         return JsonResponse(
-            {'error': f'Room taken by Dr. {other.get_full_name() or other.username}'},
+            {'error': f'Room taken by Dr. {other.display_name}'},
             status=400,
         )
 
@@ -350,7 +360,13 @@ def delete_prescription(request, rx_id):
     return JsonResponse({'status': 'ok'})
 
 
-# ─── NURSE ──────────────────────────────────────────────────────────────────────
+# NURSE 
+# NOTE: There is only ONE 'nurse' role in the system (see ROLES in models.py).
+# "Ward nurse" was never a separate role — nurses already access both the
+# Patients dashboard (vitals queue) and the Ward dashboard (admitted patients).
+# The fix here is purely navigational: nurse.html and ward_dashboard.html
+# now cross-link to each other in the sidebar so it reads as one cohesive
+# nurse workspace instead of two disconnected pages.
 @login_required
 def nurse_dashboard(request):
     if not _is_role(request.user, 'nurse'):
@@ -365,26 +381,9 @@ def nurse_dashboard(request):
         .order_by('queue_number', 'created_at')
     )
 
-    history = (
-        PatientVisit.objects.filter(
-            nurse=nurse,
-            nurse_history_deleted=False,
-            status__in=[
-                'with_doctor',
-                'lab_pending',
-                'lab_paid',
-                'lab_processing',
-                'rx_pending',
-                'rx_paid',
-                'pharmacy',
-                'completed',
-            ],
-        )
-        .select_related('patient', 'doctor')
-        .order_by('-updated_at')[:30]
-    )
+    waiting_count = visits.count()
 
-    ctx = {'visits': visits, 'history': history, 'nurse': nurse}
+    ctx = {'visits': visits, 'nurse': nurse, 'waiting_count': waiting_count}
     return render(request, 'nurse_dashboard.html', ctx)
 
 
@@ -441,7 +440,11 @@ def nurse_history(request):
     from records.models import PatientVisit
 
     history = (
-        PatientVisit.objects.filter(nurse=request.user)
+        PatientVisit.objects.filter(
+            nurse=request.user,
+            nurse_history_deleted=False,
+        )
+        .exclude(status__in=['pending_payment', 'paid', 'vitals'])
         .select_related('patient', 'doctor')
         .prefetch_related('doctor_notes')
         .order_by('-updated_at')
@@ -449,7 +452,7 @@ def nurse_history(request):
     return render(request, 'nurse_history.html', {'history': history})
 
 
-# ─── RECEPTIONIST ───────────────────────────────────────────────────────────────
+# RECEPTIONIST
 @login_required
 def receptionist_dashboard(request):
     if not _is_role(request.user, 'receptionist'):
@@ -522,7 +525,7 @@ def search_doctors(request):
     results = [
         {
             'id': d.pk,
-            'name': d.get_full_name() or d.username,
+            'name': d.display_name,
             'type': d.get_doctor_type_display() if d.doctor_type else '',
             'specialization': d.get_specialization_display() if d.specialization else '',
             'available': d.is_available,
@@ -564,7 +567,6 @@ def create_visit(request):
 
     with transaction.atomic():
         today = timezone.now().date()
-        # FIX: select_for_update prevents race condition on queue_number
         last_q = (
             PatientVisit.objects.select_for_update()
             .filter(created_at__date=today)
@@ -598,7 +600,22 @@ def create_visit(request):
     return JsonResponse({'status': 'ok', 'visit_id': visit.pk})
 
 
-# ─── PATIENT ────────────────────────────────────────────────────────────────────
+@login_required
+def receptionist_history(request):
+    if not _is_role(request.user, 'receptionist'):
+        return redirect('dashboard_home')
+
+    from records.models import PatientVisit
+
+    visits = (
+        PatientVisit.objects.filter(receptionist=request.user)
+        .select_related('patient', 'doctor', 'nurse', 'accountant')
+        .order_by('-created_at')
+    )
+    return render(request, 'receptionist_history.html', {'visits': visits})
+
+
+# PATIENT
 @login_required
 def patient_dashboard(request):
     if not _is_role(request.user, 'patient'):
@@ -655,6 +672,14 @@ def patient_records(request):
         visits = (
             PatientVisit.objects.filter(patient=request.user)
             .select_related('doctor', 'nurse', 'accountant')
+            .prefetch_related(
+                'doctor_notes',
+                'payments',
+                'prescriptions__drugs__drug',
+                'lab_requests__tests__test',
+                'admissions',
+                'surgeries',
+            )
             .order_by('-created_at')
         )
 
@@ -702,7 +727,6 @@ def patient_profile(request):
         u.occupation = d.get('occupation', u.occupation).strip()
         u.marital_status = d.get('marital_status', u.marital_status)
         u.nationality = d.get('nationality', u.nationality).strip()
-        # FIX: corrected typo 'religiion' → 'religion'
         u.religion = d.get('religion', u.religion).strip()
         u.next_of_kin_name = d.get('next_of_kin_name', u.next_of_kin_name).strip()
         u.next_of_kin_phone = d.get('next_of_kin_phone', u.next_of_kin_phone).strip()
@@ -722,8 +746,7 @@ def patient_profile(request):
         u.has_support_person = d.get('has_support_person') == 'yes'
         u.has_legal_guardian = d.get('has_legal_guardian') == 'yes'
 
-        # FIX: only save the profile fields — never touch password, role, is_staff, etc.
-        u.save(update_fields=[
+        update_fields = [
             'first_name', 'last_name', 'preferred_name', 'email', 'phone',
             'address', 'gender', 'date_of_birth', 'blood_group', 'genotype',
             'allergies', 'medical_history', 'current_medications', 'family_history',
@@ -733,10 +756,20 @@ def patient_profile(request):
             'emergency_contact_relationship', 'disabilities', 'home_phone', 'work_phone',
             'temporary_address', 'employer', 'sex_at_birth', 'has_support_person',
             'has_legal_guardian',
-        ])
-        return JsonResponse({'status': 'ok'})
+        ]
 
-    from management.models import BLOOD_GROUPS, GENOTYPES
+        if 'profile_photo' in request.FILES:
+            u.profile_photo = request.FILES['profile_photo']
+            update_fields.append('profile_photo')
+
+        u.save(update_fields=update_fields)
+
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type != 'multipart/form-data':
+            return JsonResponse({'status': 'ok'})
+        messages.success(request, 'Profile updated successfully.')
+        return redirect('patient_profile')
+
+    from management.models import BLOOD_GROUPS, GENOTYPES, MARITAL_STATUS_CHOICES
 
     return render(
         request,
@@ -745,6 +778,7 @@ def patient_profile(request):
             'u': request.user,
             'blood_groups': BLOOD_GROUPS,
             'genotypes': GENOTYPES,
+            'marital_status_choices': MARITAL_STATUS_CHOICES,
         },
     )
 
@@ -762,7 +796,7 @@ def update_visit_summary(request, visit_id):
     return JsonResponse({'status': 'ok'})
 
 
-# ─── HISTORY PAGES ──────────────────────────────────────────────────────────────
+# HISTORY PAGES (each role gets its own dedicated template)
 @login_required
 def doctor_history(request):
     if not _is_role(request.user, 'doctor'):
@@ -771,13 +805,15 @@ def doctor_history(request):
     from records.models import PatientVisit
 
     visits = (
-        PatientVisit.objects.filter(doctor=request.user)
+        PatientVisit.objects.filter(doctor=request.user, status='completed')
         .select_related('patient', 'nurse')
         .prefetch_related(
             'doctor_notes',
             'payments',
             'prescriptions__drugs__drug',
             'lab_requests__tests__test',
+            'surgeries',
+            'admissions',
         )
         .order_by('-created_at')
     )
@@ -793,6 +829,7 @@ def pharmacist_history(request):
 
     rxs = (
         Prescription.objects.filter(pharmacist=request.user)
+        .exclude(status__in=['pending_payment'])
         .select_related('patient', 'visit', 'doctor')
         .prefetch_related('drugs__drug')
         .order_by('-created_at')
@@ -808,27 +845,69 @@ def lab_attendant_history(request):
     from lab.models import LabRequest
 
     requests = (
-        LabRequest.objects.filter(lab_attendant=request.user)
-        .select_related('patient', 'visit', 'doctor')
-        .prefetch_related('tests__test')
-        .order_by('-created_at')
+    LabRequest.objects.filter(
+        lab_attendant=request.user,
+        status='completed'
+    )
+    .select_related('patient', 'visit', 'doctor')
+    .prefetch_related('tests__test')
+    .order_by('-created_at')
     )
     return render(request, 'lab_history.html', {'requests': requests})
 
 
 @login_required
 def accountant_history(request):
+    """
+    FIX: payments are now grouped by session (payment_group) rather than
+    shown as flat individual rows. Payments with an empty payment_group
+    (standalone consultation/lab/rx) are bucketed under their visit id
+    so the accountant still sees one card per patient encounter instead
+    of N separate line items for the same visit.
+    """
     if not _is_role(request.user, 'accountant'):
         return redirect('dashboard_home')
 
     from accounting.models import Payment
+    from itertools import groupby
+    from operator import attrgetter
 
-    payments = (
+    payments = list(
         Payment.objects.filter(accountant=request.user, is_paid=True)
-        .select_related('patient', 'visit')
-        .order_by('-paid_at')
+        .select_related('patient', 'visit', 'surgery', 'admission', 'prescription', 'lab_request')
+        .prefetch_related('prescription__drugs__drug', 'lab_request__tests__test')
+        .order_by('visit_id', 'payment_group', '-paid_at')
     )
-    return render(request, 'accountant_history.html', {'payments': payments})
+
+    # Build a stable session key: explicit payment_group if set, else visit id
+    def session_key(p):
+        return p.payment_group or f'visit-{p.visit_id}'
+
+    payments.sort(key=lambda p: (session_key(p), p.paid_at), reverse=False)
+    payments.sort(key=session_key)
+
+    sessions = []
+    for key, group in groupby(payments, key=session_key):
+        group_list = list(group)
+        group_list.sort(key=lambda p: p.paid_at or p.created_at, reverse=True)
+        first = group_list[0]
+        total = sum(float(p.amount) for p in group_list)
+        sessions.append({
+            'key': key,
+            'patient': first.patient,
+            'visit': first.visit,
+            'surgery': first.surgery,
+            'admission': first.admission,
+            'payments': group_list,
+            'total': total,
+            'latest_paid_at': max((p.paid_at for p in group_list if p.paid_at), default=None),
+            'is_surgery': key.startswith('surgery-'),
+            'is_admission': key.startswith('admission-'),
+        })
+
+    sessions.sort(key=lambda s: s['latest_paid_at'] or timezone.now(), reverse=True)
+
+    return render(request, 'accountant_history.html', {'sessions': sessions})
 
 
 @login_required
@@ -836,11 +915,11 @@ def ward_dashboard(request):
     if request.user.role not in ['nurse', 'doctor']:
         return redirect('dashboard_home')
 
-    from records.models import WARD_CHOICES, WardAdmission
+    from records.models import Ward, WardAdmission
 
     admissions = (
         WardAdmission.objects.filter(status__in=['paid', 'admitted'])
-        .select_related('patient', 'doctor', 'nurse', 'visit')
+        .select_related('patient', 'doctor', 'nurse', 'visit', 'ward')
         .prefetch_related(
             'prescriptions__items__drug',
             'visit__lab_requests__tests__test',
@@ -849,28 +928,39 @@ def ward_dashboard(request):
             'visit__surgeries__payments',
             'payments',
         )
-        .order_by('ward', 'bed_number')
+        .order_by('ward__name', 'bed_number')
     )
+
+    ward_choices = [
+        (ward.id, ward.name)
+        for ward in Ward.objects.all().order_by('name')
+    ]
 
     available_lab_attendants = User.objects.filter(
         role='lab_attendant',
         is_approved=True,
         is_available=True,
     )
+
     available_pharmacists = User.objects.filter(
         role='pharmacist',
         is_approved=True,
         is_available=True,
     )
 
+    print("Admissions:", admissions.count())
+    print("Wards:", ward_choices)
+
+
     ctx = {
         'nurse': request.user,
         'user': request.user,
         'admissions': admissions,
-        'ward_choices': WARD_CHOICES,
+        'ward_choices': ward_choices,
         'available_lab_attendants': available_lab_attendants,
         'available_pharmacists': available_pharmacists,
     }
+
     return render(request, 'ward_dashboard.html', ctx)
 
 

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load hp_tags %}
+
+{% block title %}Dispensed — Rhudesi{% endblock %}
+{% block logo_sub %}Pharmacy{% endblock %}
+{% block role_label %}Pharmacist{% endblock %}
+
+{% block nav %}
+<a href="{% url 'pharmacist_dashboard' %}" class="sb-item">
+  <span class="sb-icon">💊</span> Pending
+</a>
+
+<a href="{% url 'pharmacist_dispensed' %}" class="sb-item active">
+  <span class="sb-icon">✅</span> Dispensed
+</a>
+
+<a href="{% url 'pharmacist_inventory' %}" class="sb-item">
+  <span class="sb-icon">🗃</span> Inventory
+</a>
+{% endblock %}
+
+{% block page_title %}Dispensed Prescriptions{% endblock %}
+
+{% block content %}
+
+{% if not dispensed %}
+
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">📋</div>
+    <div class="empty-title">Nothing dispensed yet</div>
+    <div class="empty-sub">
+      Prescriptions you dispense or reject will appear here.
+    </div>
+  </div>
+</div>
+
+{% else %}
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Patient</th>
+        <th>Doctor</th>
+        <th>Drugs</th>
+        <th>Amount</th>
+        <th>Status</th>
+        <th>Dispensed Date</th>
+        <th></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for rx in dispensed %}
+      <tr>
+
+        <td>
+          <div class="fw-7">{{ rx.patient.display_name }}</div>
+
+          {% if rx.doctor_note|slice:":19" == "Surgery drugs for:" %}
+            <div class="text-xs" style="color:var(--purple)">⚕ Surgery</div>
+          {% endif %}
+        </td>
+
+        <td class="text-dim">Dr. {{ rx.doctor.display_name }}</td>
+
+        <td class="text-dim text-xs">
+          {% for item in rx.drugs.all %}
+            {{ item.drug.name }}{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </td>
+
+        <td class="mono fw-6 text-teal">
+          ₦{{ rx.total_price|floatformat:0 }}
+        </td>
+
+        <td>
+          <span class="badge
+            {% if rx.status == 'dispensed' %}
+              b-teal
+            {% elif rx.status == 'rejected' %}
+              b-red
+            {% else %}
+              b-gray
+            {% endif %}
+          ">
+            {{ rx.get_status_display }}
+          </span>
+        </td>
+
+        <td class="text-xs text-muted">
+          {{ rx.dispensed_at|date:"d M Y, H:i" }}
+        </td>
+
+        <td>
+          <a href="{% url 'print_prescription' rx.id %}" target="_blank" class="btn btn-ghost btn-xs">
+            🖨 Print
+          </a>
+        </td>
+
+      </tr>
+      {% endfor %}
+    </tbody>
+
+  </table>
+</div>
+
+{% endif %}
+
+{% endblock %}

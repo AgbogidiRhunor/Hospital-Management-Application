@@ -1,37 +1,151 @@
-{% extends "base.html" %}{% load hp_tags %}
-{% block title %}Records — Rhudesi{% endblock %}{% block logo_suffix %}Patient Portal{% endblock %}{% block page_title %}My Records{% endblock %}
+{% extends "base.html" %}
+{% load hp_tags %}
+{% block title %}My Records — Rhudesi{% endblock %}
+{% block logo_sub %}Patient Portal{% endblock %}
+{% block role_label %}Patient{% endblock %}
+
 {% block nav %}
-<a href="{% url 'patient_dashboard' %}" class="sb-link"><span class="sb-link-ico">🏥</span>Dashboard</a>
-<a href="{% url 'patient_records' %}" class="sb-link on"><span class="sb-link-ico">📄</span>Records</a>
-<a href="{% url 'patient_profile' %}" class="sb-link"><span class="sb-link-ico">👤</span>Profile</a>
+<a href="{% url 'patient_dashboard' %}" class="sb-item"><span class="sb-icon">🏥</span> Dashboard</a>
+<a href="{% url 'patient_records' %}" class="sb-item active"><span class="sb-icon">📄</span> Records</a>
+<a href="{% url 'patient_profile' %}" class="sb-item"><span class="sb-icon">👤</span> Profile</a>
 {% endblock %}
+
+{% block page_title %}My Records{% endblock %}
+
 {% block content %}
-{% if not visits %}<div class="card"><div style="padding:52px;text-align:center;color:var(--text3)">No visit history yet</div></div>{% endif %}
+
+{% if not visits %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">📄</div>
+    <div class="empty-title">No visit records yet</div>
+    <div class="empty-sub">Your completed visits will appear here with a full summary of notes, prescriptions, labs, and payments.</div>
+  </div>
+</div>
+{% else %}
+
+<div class="flex-col" style="gap:10px">
 {% for v in visits %}
-<div class="vc">
-  <div class="vc-h" onclick="C.toggle('rv{{ v.id }}')">
-    <div class="vc-num" style="font-size:.63rem">{{ v.created_at|date:"d M" }}</div>
+<div class="visit-card">
+  <div class="vc-header" onclick="toggleV('{{ v.id }}')">
+    <div class="vc-queue" style="font-size:.65rem;background:var(--bg-elevated)">{{ v.created_at|date:"d M" }}</div>
     <div class="vc-info">
-      <div class="vc-name">Visit #{{ v.id }}<span class="badge {% if v.status == 'completed' %}b-teal{% else %}b-amber{% endif %}">{{ v.get_status_display }}</span></div>
-      <div class="vc-meta"><span>Dr. {{ v.doctor.get_full_name|default:v.doctor.username }}</span><span>·</span><span>{{ v.prescriptions.count }} Rx</span><span>·</span><span>{{ v.lab_requests.count }} Lab</span></div>
+      <div class="vc-name">
+        Visit #{{ v.id }}
+        <span class="badge {% if v.status == 'completed' %}b-teal{% elif v.status == 'admitted' %}b-blue{% else %}b-amber{% endif %}">
+          {{ v.get_status_display }}
+        </span>
+        {% if v.surgeries.all %}<span class="badge b-purple">⚕ Surgery</span>{% endif %}
+        {% if v.admissions.all %}<span class="badge b-teal">🛏 Admitted</span>{% endif %}
+      </div>
+      <div class="vc-meta">
+        {% if v.doctor %}<span>Dr. {{ v.doctor.display_name }}</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.doctor_notes.all %}<span>{{ v.doctor_notes.count }} note{{ v.doctor_notes.count|pluralize }}</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.prescriptions.all %}<span>{{ v.prescriptions.count }} Rx</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.lab_requests.all %}<span>{{ v.lab_requests.count }} lab{{ v.lab_requests.count|pluralize }}</span><span class="vc-meta-dot"></span>{% endif %}
+        <span>{{ v.created_at|date:"d M Y" }}</span>
+      </div>
     </div>
-    <div class="flex items-c gap-2">
-      <a href="/api/download-visit-summary/{{ v.id }}/" target="_blank" class="btn btn-ghost btn-sm">⬇ Summary</a>
+    <div class="flex items-center gap-2 flex-shrink-0" onclick="event.stopPropagation()">
+      <a href="{% url 'download_visit_summary' v.id %}" target="_blank" class="btn btn-ghost btn-xs">🖨 Summary</a>
+      <svg id="vch{{ v.id }}" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--text-muted);transition:transform .2s"><path d="M3 5l4 4 4-4"/></svg>
     </div>
   </div>
-  <div class="vc-body hidden" id="rv{{ v.id }}">
-    {% if v.vitals %}
-    <div class="sl">Vitals</div>
-    <div class="vg" style="margin-top:6px">
-      {% if v.vitals.blood_pressure %}<div class="vg-item"><div class="vg-lbl">BP</div><div class="vg-val">{{ v.vitals.blood_pressure }}</div><div class="vg-unit">mmHg</div></div>{% endif %}
-      {% if v.vitals.pulse_rate %}<div class="vg-item"><div class="vg-lbl">Pulse</div><div class="vg-val">{{ v.vitals.pulse_rate }}</div><div class="vg-unit">bpm</div></div>{% endif %}
-      {% if v.vitals.temperature %}<div class="vg-item"><div class="vg-lbl">Temp</div><div class="vg-val">{{ v.vitals.temperature }}</div><div class="vg-unit">°C</div></div>{% endif %}
-      {% if v.vitals.weight %}<div class="vg-item"><div class="vg-lbl">Wt</div><div class="vg-val">{{ v.vitals.weight }}</div><div class="vg-unit">kg</div></div>{% endif %}
-      {% if v.vitals.bmi %}<div class="vg-item"><div class="vg-lbl">BMI</div><div class="vg-val">{{ v.vitals.bmi }}</div></div>{% endif %}
-    </div>{% endif %}
-    {% if v.doctor_notes.all %}<div class="sl">Doctor Notes</div><div class="tl">{% for n in v.doctor_notes.all %}<div class="tl-item"><div class="tl-dot"></div><div class="tl-body"><div class="tl-text">{{ n.note }}</div><div class="tl-time">{{ n.created_at|date:"d M, H:i" }}</div></div></div>{% endfor %}</div>{% endif %}
-    {% if v.prescriptions.all %}<div class="sl">Prescriptions</div>{% for rx in v.prescriptions.all %}<div class="drug-row"><div class="drug-name">Rx #{{ rx.id }} — {{ rx.drugs.count }} drug(s)</div><span class="badge {% if rx.status == 'dispensed' %}b-teal{% else %}b-gray{% endif %}">{{ rx.get_status_display }}</span><a href="{% url 'print_prescription' rx.id %}" target="_blank" class="btn btn-ghost btn-xs">🖨</a></div>{% endfor %}{% endif %}
-    {% if v.lab_requests.all %}<div class="sl">Lab Results</div>{% for lr in v.lab_requests.all %}<div class="drug-row"><div class="drug-name">Lab #{{ lr.id }} — {{ lr.tests.count }} test(s)</div><span class="badge {% if lr.status == 'completed' %}b-teal{% else %}b-gray{% endif %}">{{ lr.get_status_display }}</span>{% if lr.status == 'completed' %}<a href="{% url 'print_lab_results' lr.id %}" target="_blank" class="btn btn-ghost btn-xs">🖨</a>{% endif %}</div>{% endfor %}{% endif %}
+
+  <div class="vc-body" id="vb{{ v.id }}">
+
+    {% if v.doctor_notes.all %}
+    <div class="section-label">Doctor Notes</div>
+    <div class="timeline">
+      {% for n in v.doctor_notes.all %}
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-body">
+          <div class="tl-text">{{ n.note }}</div>
+          <div class="tl-time">{{ n.created_at|date:"d M Y, H:i" }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if v.prescriptions.all %}
+    <div class="section-label">Prescriptions</div>
+    {% for rx in v.prescriptions.all %}
+    <div style="padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="fw-7 text-sm">Rx #{{ rx.id }}</span>
+          {% if rx.doctor_note|slice:":19" == "Surgery drugs for:" %}<span class="badge b-purple">⚕ Surgery</span>{% endif %}
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="mono text-xs text-muted">{{ rx.created_at|date:"d M, H:i" }}</span>
+          <span class="badge {% if rx.status == 'dispensed' %}b-teal{% elif rx.status == 'paid' %}b-blue{% else %}b-amber{% endif %}">{{ rx.get_status_display }}</span>
+        </div>
+      </div>
+      {% for item in rx.drugs.all %}
+      <div class="text-xs text-dim mb-1">{{ item.drug.name }}{% if item.drug.strength %} ({{ item.drug.strength }}){% endif %} ×{{ item.quantity }}{% if item.dosage %} — {{ item.dosage }}{% endif %}</div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if v.lab_requests.all %}
+    <div class="section-label">Lab Requests</div>
+    {% for lr in v.lab_requests.all %}
+    <div style="padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px">
+      <div class="flex items-center justify-between mb-2">
+        <span class="fw-7 text-sm">Lab #{{ lr.id }}</span>
+        <span class="badge {% if lr.status == 'completed' %}b-teal{% elif lr.status == 'in_progress' %}b-blue{% else %}b-amber{% endif %}">{{ lr.get_status_display }}</span>
+      </div>
+      {% for t in lr.tests.all %}
+      <div class="text-xs text-dim mb-1">
+        · {{ t.test.name }}
+        {% if t.is_completed and t.result_note %}
+        <span style="color:var(--teal)"> — {{ t.result_note }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% if lr.status == 'completed' %}
+      <a href="{% url 'print_lab_results' lr.id %}" target="_blank" class="btn btn-ghost btn-xs mt-2">View Full Report</a>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if v.payments.all %}
+    <div class="section-label">Payments</div>
+    {% regroup v.payments.all by is_paid as payment_groups %}
+    {% for group in payment_groups %}
+    {% for pay in group.list %}
+    <div class="flex items-center justify-between" style="padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:5px">
+      <div>
+        <span class="fw-6 text-sm">{{ pay.get_payment_type_display }}</span>
+        {% if pay.total_parts > 1 %}<span class="badge b-blue" style="font-size:.58rem;margin-left:4px">Part {{ pay.part_number }}/{{ pay.total_parts }}</span>{% endif %}
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="mono fw-6 {% if pay.is_paid %}text-teal{% else %}text-amber{% endif %}">₦{{ pay.amount|floatformat:0 }}</span>
+        <span class="badge {% if pay.is_paid %}b-teal{% else %}b-amber{% endif %}">{% if pay.is_paid %}Paid{% else %}Pending{% endif %}</span>
+        {% if pay.is_paid %}<a href="/accounting/receipt/{{ pay.id }}/print/" target="_blank" class="btn btn-ghost btn-xs">🖨</a>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+    {% endif %}
+
   </div>
-</div>{% endfor %}
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block js %}
+<script>
+function toggleV(id){
+  const b=document.getElementById('vb'+id),c=document.getElementById('vch'+id);
+  if(!b)return; const open=b.classList.toggle('open'); if(c)c.style.transform=open?'rotate(180deg)':'';
+}
+</script>
 {% endblock %}

@@ -12,4 +12,8 @@ urlpatterns = [
     path('api/drug/add/', views.add_drug, name='add_drug'),
     path('api/drug/<int:drug_id>/delete/', views.delete_drug, name='delete_drug'),
     path('api/drug/<int:drug_id>/edit/', views.edit_drug, name='edit_drug'),
+    path('dispensed/', views.pharmacist_dispensed, name='pharmacist_dispensed'),
+    path('inventory/', views.pharmacist_inventory, name='pharmacist_inventory'),
+    path('drug/<int:drug_id>/edit/', views.edit_drug, name='edit_drug'),
+    path('rx/<int:rx_id>/print/', views.print_prescription, name='print_prescription')
 ]

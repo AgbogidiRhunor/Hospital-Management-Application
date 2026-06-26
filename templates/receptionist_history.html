@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% load hp_tags %}
+{% block title %}Visit History — Rhudesi{% endblock %}
+{% block logo_sub %}Reception{% endblock %}
+{% block role_label %}Receptionist{% endblock %}
+
+{% block nav %}
+<a href="{% url 'receptionist_dashboard' %}" class="sb-item"><span class="sb-icon">🏥</span> New Visit</a>
+<a href="{% url 'receptionist_history' %}" class="sb-item active"><span class="sb-icon">📂</span> History</a>
+{% endblock %}
+
+{% block page_title %}Visit History{% endblock %}
+
+{% block content %}
+
+{% if not visits %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">📂</div>
+    <div class="empty-title">No visits registered yet</div>
+    <div class="empty-sub">Visits you create will appear here.</div>
+  </div>
+</div>
+{% else %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Patient</th>
+        <th>Doctor</th>
+        <th>Nurse</th>
+        <th>Status</th>
+        <th>Queue #</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in visits %}
+      <tr>
+        <td>
+          <div class="fw-7">{{ v.patient.display_name }}</div>
+          <div class="text-xs text-muted">Visit #{{ v.id }}</div>
+        </td>
+        <td class="text-dim">{% if v.doctor %}Dr. {{ v.doctor.display_name }}{% else %}—{% endif %}</td>
+        <td class="text-dim">{{ v.nurse.display_name|default:"—" }}</td>
+        <td>
+          <span class="badge {% if v.status == 'completed' %}b-teal{% elif v.status == 'pending_payment' %}b-amber{% elif v.status == 'with_doctor' %}b-blue{% elif v.status == 'admitted' %}b-blue{% else %}b-gray{% endif %}">
+            {{ v.get_status_display }}
+          </span>
+        </td>
+        <td class="mono text-dim">{% if v.queue_number %}#{{ v.queue_number }}{% else %}—{% endif %}</td>
+        <td class="text-xs text-muted">{{ v.created_at|date:"d M Y, H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

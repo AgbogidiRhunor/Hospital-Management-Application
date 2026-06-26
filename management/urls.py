@@ -39,5 +39,6 @@ urlpatterns = [
     path('history/lab/', views.lab_attendant_history, name='lab_attendant_history'),
     path('history/accountant/', views.accountant_history, name='accountant_history'),
     path('history/nurse/', views.nurse_history, name='nurse_history'),
+    path('history/receptionist/', views.receptionist_history, name='receptionist_history'),
     path('api/download-visit-summary/<int:visit_id>/', views.download_visit_summary, name='download_visit_summary'),
 ]

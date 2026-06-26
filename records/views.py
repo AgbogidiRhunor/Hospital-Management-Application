@@ -108,67 +108,96 @@ def prescribe(request, visit_id):
 @login_required
 def order_lab(request, visit_id):
     """Doctor orders lab tests → sends to accountant first."""
-    if request.method == 'POST' and request.user.role == 'doctor':
-        visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
-        d = request.POST
+    
+    if request.method != 'POST' or request.user.role != 'doctor':
+        return JsonResponse({'error': 'forbidden'}, status=403)
 
-        lab_attendant_id = d.get('lab_attendant_id')
-        lab_attendant = None
-        if lab_attendant_id:
-            lab_attendant = User.objects.filter(pk=lab_attendant_id, role='lab_attendant').first()
+    visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
+    d = request.POST
 
-        accountant_id = d.get('accountant_id')
-        accountant = None
-        if accountant_id:
-            accountant = User.objects.filter(pk=accountant_id, role='accountant').first()
-        if not accountant:
-            accountant = visit.accountant
+    # Lab Attendant (optional but validated properly)
+    lab_attendant = None
+    lab_attendant_id = d.get('lab_attendant_id')
 
-        test_ids = d.getlist('test_ids[]')
-        test_notes = d.getlist('test_notes[]')
+    if lab_attendant_id:
+        lab_attendant = User.objects.filter(
+            pk=lab_attendant_id,
+            role='lab_attendant'
+        ).first()
 
-        if not test_ids:
-            return JsonResponse({'error': 'No tests selected'}, status=400)
+        # optional safety fallback (important fix)
+        if lab_attendant_id and not lab_attendant:
+            return JsonResponse({'error': 'Invalid lab attendant selected'}, status=400)
 
-        with transaction.atomic():
-            lr = LabRequest.objects.create(
-                visit=visit,
-                patient=visit.patient,
-                doctor=request.user,
-                lab_attendant=lab_attendant,
-                accountant=accountant,
-                doctor_note=d.get('note', ''),
-                status='pending_payment',
+    # Accountant (required fallback to visit.accountant) 
+    accountant = None
+    accountant_id = d.get('accountant_id')
+
+    if accountant_id:
+        accountant = User.objects.filter(
+            pk=accountant_id,
+            role='accountant'
+        ).first()
+
+    if not accountant:
+        accountant = visit.accountant
+
+    if not accountant:
+        return JsonResponse({'error': 'No accountant assigned'}, status=400)
+
+    # Tests 
+    test_ids = d.getlist('test_ids[]')
+    test_notes = d.getlist('test_notes[]')
+
+    if not test_ids:
+        return JsonResponse({'error': 'No tests selected'}, status=400)
+
+    # prevent mismatch bugs
+    if len(test_notes) < len(test_ids):
+        test_notes += [''] * (len(test_ids) - len(test_notes))
+
+    with transaction.atomic():
+        lr = LabRequest.objects.create(
+            visit=visit,
+            patient=visit.patient,
+            doctor=request.user,
+            lab_attendant=lab_attendant,
+            accountant=accountant,
+            doctor_note=d.get('note', ''),
+            status='pending_payment',
+        )
+
+        total = 0
+
+        for test_id, note in zip(test_ids, test_notes):
+            test = LabTest.objects.filter(pk=test_id).first()
+            if not test:
+                continue
+
+            LabRequestTest.objects.create(
+                request=lr,
+                test=test,
+                doctor_note=note,
+                price_at_time=test.price,
             )
-            total = 0
-            for test_id, note in zip(test_ids, test_notes):
-                try:
-                    test = LabTest.objects.get(pk=test_id)
-                    LabRequestTest.objects.create(
-                        request=lr, test=test,
-                        doctor_note=note,
-                        price_at_time=test.price,
-                    )
-                    total += test.price
-                except LabTest.DoesNotExist:
-                    pass
-            lr.total_price = total
-            lr.save()
+            total += test.price
 
-            Payment.objects.create(
-                visit=visit,
-                patient=visit.patient,
-                accountant=accountant,
-                payment_type='lab',
-                amount=total,
-                lab_request=lr,
-            )
-            visit.status = 'lab_pending'
-            visit.save()
+        lr.total_price = total
+        lr.save(update_fields=['total_price'])
 
-        return JsonResponse({'status': 'ok', 'lr_id': lr.pk})
-    return JsonResponse({'error': 'forbidden'}, status=403)
+        Payment.objects.create(
+            visit=visit,
+            patient=visit.patient,
+            accountant=accountant,
+            payment_type='lab',
+            amount=total,
+            lab_request=lr,
+        )
 
+        visit.status = 'lab_pending'
+        visit.save(update_fields=['status'])
+
+    return JsonResponse({'status': 'ok', 'lr_id': lr.pk})
 
 def _create_part_payments(visit, patient, accountant, payment_type, total_amount,
                            discount_amount, num_parts, part_amounts,
@@ -211,25 +240,48 @@ def _create_part_payments(visit, patient, accountant, payment_type, total_amount
 def admit_patient(request, visit_id):
     """Doctor submits admission form with optional part-payments and discount."""
     if request.method == 'POST' and request.user.role == 'doctor':
-        from records.models import WardAdmission, WARD_CAPACITY
+        from records.models import (
+            Ward,
+            WardAdmission,
+            AdmissionPrescription,
+            AdmissionPrescriptionItem,
+        )
+
         visit = get_object_or_404(PatientVisit, pk=visit_id, doctor=request.user)
         d = request.POST
-        ward = d.get('ward')
+
+        ward = get_object_or_404(Ward, pk=d.get('ward'))
         bed_number = int(d.get('bed_number', 1))
         daily_fee = float(d.get('daily_ward_fee', 0) or 0)
         total_fee = float(d.get('total_admission_fee', 0) or 0)
         discount = float(d.get('discount_amount', 0) or 0)
         est_days = max(1, int(d.get('est_days', 1) or 1))
 
+        # Validate bed number against ward capacity
+        if bed_number < 1 or bed_number > ward.capacity:
+            return JsonResponse(
+                {'error': f'Bed number must be between 1 and {ward.capacity}'},
+                status=400
+            )
+
         # Instalment plan: one part per day (daily_fee per part)
         # JS sends est_days; each instalment = daily_fee
         num_parts = est_days
+
         # Each part = daily_fee (net of discount spread evenly)
         part_amounts = []  # let _create_part_payments split evenly (daily_fee per part)
 
-        occupied = WardAdmission.objects.filter(ward=ward, bed_number=bed_number, status__in=['paid', 'admitted']).count()
+        occupied = WardAdmission.objects.filter(
+            ward=ward,
+            bed_number=bed_number,
+            status__in=['paid', 'admitted']
+        ).exists()
+
         if occupied:
-            return JsonResponse({'error': f'Bed {bed_number} is already occupied'}, status=400)
+            return JsonResponse(
+                {'error': f'Bed {bed_number} is already occupied'},
+                status=400
+            )
 
         drug_ids = d.getlist('drug_ids[]')
         dosages = d.getlist('dosages[]')
@@ -237,55 +289,81 @@ def admit_patient(request, visit_id):
 
         with transaction.atomic():
             admission = WardAdmission.objects.create(
-                visit=visit, patient=visit.patient, doctor=request.user,
-                nurse=visit.nurse, accountant=visit.accountant,
-                ward=ward, bed_number=bed_number,
+                visit=visit,
+                patient=visit.patient,
+                doctor=request.user,
+                nurse=visit.nurse,
+                accountant=visit.accountant,
+                ward=ward,
+                bed_number=bed_number,
                 admission_reason=d.get('admission_reason', ''),
-                daily_ward_fee=daily_fee, total_admission_fee=total_fee,
+                daily_ward_fee=daily_fee,
+                total_admission_fee=total_fee,
                 discount_amount=discount,
                 admission_fee_parts=num_parts,
                 status='pending_payment',
             )
 
             group = f'admission-{admission.pk}'
+
             _create_part_payments(
-                visit=visit, patient=visit.patient, accountant=visit.accountant,
-                payment_type='admission', total_amount=total_fee,
-                discount_amount=discount, num_parts=num_parts,
+                visit=visit,
+                patient=visit.patient,
+                accountant=visit.accountant,
+                payment_type='admission',
+                total_amount=total_fee,
+                discount_amount=discount,
+                num_parts=num_parts,
                 part_amounts=part_amounts,
-                obj_fk_name='admission', obj_instance=admission,
+                obj_fk_name='admission',
+                obj_instance=admission,
                 payment_group=group,
             )
 
             # Create initial admission prescription if drugs provided
             if drug_ids:
-                from records.models import AdmissionPrescription, AdmissionPrescriptionItem
                 rx = AdmissionPrescription.objects.create(
-                    admission=admission, doctor=request.user,
-                    notes='Initial admission medication', status='active',
+                    admission=admission,
+                    doctor=request.user,
+                    notes='Initial admission medication',
+                    status='active',
                 )
+
                 med_total = 0
+
                 for drug_id, dosage, qty in zip(drug_ids, dosages, quantities):
                     try:
                         drug = Drug.objects.get(pk=drug_id)
                         qty_int = int(qty) if qty else 1
                         item_price = drug.price * qty_int
+
                         AdmissionPrescriptionItem.objects.create(
-                            prescription=rx, drug=drug,
-                            drug_name=drug.name, dosage=dosage, quantity=qty_int,
+                            prescription=rx,
+                            drug=drug,
+                            drug_name=drug.name,
+                            dosage=dosage,
+                            quantity=qty_int,
                             price=item_price,
                         )
+
                         med_total += item_price
+
                     except Drug.DoesNotExist:
                         pass
+
                 if med_total > 0:
                     Payment.objects.create(
-                        visit=visit, patient=visit.patient, accountant=visit.accountant,
-                        payment_type='admission_medication', amount=med_total,
+                        visit=visit,
+                        patient=visit.patient,
+                        accountant=visit.accountant,
+                        payment_type='admission_medication',
+                        amount=med_total,
                         admission=admission,
                         payment_group=group,  # same group so it appears in same accountant tab
                     )
+
         return JsonResponse({'status': 'ok', 'admission_id': admission.pk})
+
     return JsonResponse({'error': 'forbidden'}, status=403)
 
 
@@ -294,30 +372,49 @@ def update_admission_payment(request, admission_id):
     """Doctor adds/modifies discount on an existing admission payment."""
     if request.method == 'POST' and request.user.role == 'doctor':
         from records.models import WardAdmission
-        admission = get_object_or_404(WardAdmission, pk=admission_id, doctor=request.user)
-        new_discount = float(request.POST.get('discount_amount', 0) or 0)
+
+        admission = get_object_or_404(
+            WardAdmission,
+            pk=admission_id,
+            doctor=request.user
+        )
+
+        new_discount = float(
+            request.POST.get('discount_amount', 0) or 0
+        )
 
         with transaction.atomic():
             # Update unpaid admission payments with new discount spread
             unpaid = Payment.objects.filter(
-                admission=admission, payment_type='admission', is_paid=False
+                admission=admission,
+                payment_type='admission',
+                is_paid=False
             ).order_by('part_number')
+
             if unpaid.exists():
                 count = unpaid.count()
+
                 # Recalculate net amount per part from total_admission_fee and new discount
                 net = float(admission.total_admission_fee) - float(new_discount)
+
                 if net < 0:
                     net = 0
+
                 base = round(net / count, 2)
                 amounts = [base] * count
+
                 diff = round(net - sum(amounts), 2)
                 amounts[0] = round(amounts[0] + diff, 2)
+
                 for p, amt in zip(unpaid, amounts):
                     p.amount = amt
                     p.save()
+
             admission.discount_amount = new_discount
             admission.save()
+
         return JsonResponse({'status': 'ok'})
+
     return JsonResponse({'error': 'forbidden'}, status=403)
 
 
@@ -468,19 +565,30 @@ def update_surgery_discount(request, surgery_id):
 @login_required
 def ward_occupancy(request):
     """Returns current bed occupancy per ward."""
-    from records.models import WardAdmission, WARD_CHOICES, WARD_CAPACITY
+    from records.models import Ward, WardAdmission
+
     result = {}
-    for ward_key, ward_label in WARD_CHOICES:
-        capacity = WARD_CAPACITY[ward_key]
-        occupied_beds = list(WardAdmission.objects.filter(
-            ward=ward_key, status__in=['paid', 'admitted']
-        ).values_list('bed_number', flat=True))
-        result[ward_key] = {
-            'label': ward_label,
-            'capacity': capacity,
+
+    wards = Ward.objects.all().order_by('name')
+
+    for ward in wards:
+        occupied_beds = list(
+            WardAdmission.objects.filter(
+                ward=ward,
+                status__in=['paid', 'admitted']
+            ).values_list('bed_number', flat=True)
+        )
+
+        result[str(ward.id)] = {
+            'label': ward.name,
+            'capacity': ward.capacity,
             'occupied': occupied_beds,
-            'available': [b for b in range(1, capacity + 1) if b not in occupied_beds],
+            'available': [
+                b for b in range(1, ward.capacity + 1)
+                if b not in occupied_beds
+            ],
         }
+
     return JsonResponse(result)
 
 
@@ -681,75 +789,173 @@ def toggle_surgery_status(request, surgery_id):
 @require_POST
 def ai_suggest(request):
     """
-    Proxy the doctor's clinical note to the Anthropic API and return
-    structured drug + lab suggestions. The API key never leaves the server.
+    Generate medication and laboratory suggestions from a doctor's
+    clinical note using OpenRouter.
     """
+
+    # Restrict access to doctors only
     if not _is_role(request.user, 'doctor'):
-        return JsonResponse({'error': 'Forbidden'}, status=403)
- 
+        return JsonResponse(
+            {'error': 'Forbidden'},
+            status=403
+        )
+
+    # Parse the JSON request payload
     try:
         body = json.loads(request.body)
         note = body.get('note', '').strip()
     except (json.JSONDecodeError, AttributeError):
-        return JsonResponse({'error': 'Invalid request body'}, status=400)
- 
-    if not note or len(note) < 10:
-        return JsonResponse({'error': 'Note is too short'}, status=400)
- 
+        return JsonResponse(
+            {'error': 'Invalid request body'},
+            status=400
+        )
+
+    # Prevent unnecessary AI calls for empty or very short notes
+    if len(note) < 10:
+        return JsonResponse(
+            {'error': 'Clinical note is too short'},
+            status=400
+        )
+
+    # Load the OpenRouter API key from Django settings
     api_key = getattr(settings, 'OPENROUTER_API_KEY', '')
+
     if not api_key:
-        return JsonResponse({'error': 'AI not configured (missing OPENROUTER_API_KEY)'}, status=503)
- 
-    system_prompt = (
-        "You are a clinical decision support assistant helping a hospital doctor in Nigeria. "
-        "Based on the doctor's clinical note, suggest relevant drugs and lab tests. "
-        "You MUST respond with ONLY a valid JSON object — no markdown, no explanation, no backticks. "
-        'Format:\n'
-        '{\n'
-        '  "drugs": [\n'
-        '    {"name": "Drug Name", "dosage": "e.g. 500mg TDS x 5 days", "reason": "brief reason"}\n'
-        '  ],\n'
-        '  "labs": [\n'
-        '    {"name": "Test Name", "reason": "brief reason"}\n'
-        '  ],\n'
-        '  "summary": "One sentence clinical reasoning for these suggestions."\n'
-        "}\n"
-        "Keep suggestions practical and appropriate for a Nigerian hospital context. "
-        "Limit to max 5 drugs and 5 lab tests. "
-        "If nothing is clearly indicated, return empty arrays."
-    )
- 
-    payload = json.dumps({
-        "model": "anthropic/claude-3.5-haiku",   # cheap + fast; change to any OpenRouter model
+        return JsonResponse(
+            {'error': 'AI service is not configured'},
+            status=503
+        )
+
+    model_name = "openai/gpt-4o-mini"
+
+    # Instruct the model to return structured JSON only
+    system_prompt = """
+You are a Clinical Decision Support assistant helping hospital doctors.
+
+Based on the doctor's clinical note:
+
+1. Suggest appropriate medications.
+2. Suggest appropriate laboratory investigations.
+3. Provide brief clinical reasoning.
+
+Return ONLY valid JSON:
+
+{
+  "drugs": [
+    {
+      "name": "Drug Name",
+      "dosage": "Dose/Frequency",
+      "reason": "Reason"
+    }
+  ],
+  "labs": [
+    {
+      "name": "Test Name",
+      "reason": "Reason"
+    }
+  ],
+  "summary": "Short clinical reasoning"
+}
+
+Maximum 5 drugs and 5 laboratory tests.
+"""
+
+    # OpenRouter chat completion request payload
+    payload = {
+        "model": model_name,
+        "temperature": 0.2,
         "max_tokens": 1000,
         "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Doctor's clinical note:\n\n{note}"}
-        ]
-    }).encode('utf-8')
- 
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": f"Doctor's clinical note:\n\n{note}",
+            },
+        ],
+    }
+
     req = urllib.request.Request(
-        'https://openrouter.ai/api/v1/chat/completions',
-        data=payload,
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
         headers={
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}',
-            'HTTP-Referer': 'https://hospital-mykw.onrender.com',  # your Render URL
-            'X-Title': 'Rhudesi Hospital CDS',
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://hospital-mykw.onrender.com",
+            "X-Title": "Rhudesi Hospital CDS",
         },
-        method='POST',
+        method="POST",
     )
- 
+
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read().decode('utf-8'))
-        suggestion = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-        return JsonResponse({'suggestion': suggestion})
- 
+        # Submit request to OpenRouter
+        with urllib.request.urlopen(req, timeout=30) as response:
+            response_data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        # Extract the model's response content
+        choices = response_data.get("choices", [])
+
+        if not choices:
+            return JsonResponse(
+                {'error': 'AI returned no response'},
+                status=502
+            )
+
+        suggestion = (
+            choices[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+
+        if not suggestion:
+            return JsonResponse(
+                {'error': 'AI returned an empty response'},
+                status=502
+            )
+
+        return JsonResponse({
+            'success': True,
+            'suggestion': suggestion
+        })
+
+    # OpenRouter returned an HTTP error (4xx/5xx)
     except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8', errors='replace')
-        return JsonResponse({'error': f'Anthropic API error: {e.code}'}, status=502)
-    except urllib.error.URLError as e:
-        return JsonResponse({'error': 'Could not reach AI service'}, status=502)
-    except Exception as e:
-        return JsonResponse({'error': 'Unexpected server error'}, status=500)
+        return JsonResponse(
+            {
+                'error': 'AI service request failed',
+                'status': e.code
+            },
+            status=502
+        )
+
+    # Network issue, timeout, DNS failure, etc.
+    except urllib.error.URLError:
+        return JsonResponse(
+            {
+                'error': 'Unable to reach AI service'
+            },
+            status=502
+        )
+
+    # AI response could not be parsed as JSON
+    except json.JSONDecodeError:
+        return JsonResponse(
+            {
+                'error': 'Invalid response received from AI service'
+            },
+            status=502
+        )
+
+    # Catch any other unexpected server-side error
+    except Exception:
+        return JsonResponse(
+            {
+                'error': 'Unexpected server error'
+            },
+            status=500
+        )

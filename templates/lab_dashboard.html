@@ -72,8 +72,12 @@
         <div class="vc-meta">
           <span>Lab #{{ lr.id }}</span>
           {% if lr.doctor %}<span class="vc-meta-dot"></span><span>Dr. {{ lr.doctor.display_name }}</span>{% endif %}
-          {% if adm %}<span class="vc-meta-dot"></span><span class="text-teal fw-6">🛏 {{ adm.get_ward_display }} — Bed {{ adm.bed_number }}</span>{% endif %}
+         {% if adm %}
           <span class="vc-meta-dot"></span>
+          <span class="text-teal fw-6">
+        🛏 {{ adm.ward }} — Bed {{ adm.bed_number }}
+         </span>
+         {% endif %}
           <span>{{ lr.created_at|date:"d M, H:i" }}</span>
         </div>
       </div>
@@ -97,7 +101,7 @@
       {% if adm %}
       <div style="padding:10px 14px;background:var(--teal-light);border:1px solid var(--teal-border);border-radius:var(--r-md);margin-bottom:12px">
         <div class="text-2xs fw-7 text-teal" style="text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">🛏 Admitted Patient</div>
-        <div class="text-xs text-dim">{{ adm.get_ward_display }} · Bed {{ adm.bed_number }}{% if adm.admission_reason %} · {{ adm.admission_reason|truncatechars:50 }}{% endif %}</div>
+        <div class="text-xs text-dim">{{ adm.ward }} · Bed {{ adm.bed_number }}{% if adm.admission_reason %} · {{ adm.admission_reason|truncatechars:50 }}{% endif %}</div>
       </div>
       {% endif %}
 
@@ -171,8 +175,9 @@
   {% endfor %}
 </div>
 
-<!-- ═══ COMPLETED ═══ -->
+<!-- COMPLETED -->
 <div id="labDone" data-panel="lab" class="panel">
+
   {% if not completed %}
   <div class="card">
     <div class="empty-state">
@@ -180,34 +185,72 @@
       <div class="empty-title">Nothing completed yet</div>
     </div>
   </div>
+
   {% else %}
   <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Patient</th>
-          <th>Tests</th>
-          <th>Ordered</th>
-          <th>Completed</th>
-          <th>Tags</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for lr in completed %}
-        <tr>
-          <td>{{ lr.patient.display_name }}</td>
-          <td class="text-dim">{% for t in lr.tests.all %}{{ t.test.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
-          <td class="text-xs text-muted">{{ lr.created_at|date:"d M, H:i" }}</td>
-          <td class="text-xs text-muted">{{ lr.completed_at|date:"d M, H:i" }}</td>
-          <td>{% if lr.doctor_note|slice:":12" == "Pre-surgery" %}<span class="badge b-purple">⚕ Surgery</span>{% endif %}</td>
-          <td><a href="{% url 'print_lab_results' lr.id %}" target="_blank" class="btn btn-ghost btn-xs">🖨 Print</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Patient</th>
+        <th>Tests</th>
+        <th>Tags</th>
+        <th>Ordered</th>
+        <th>Completed</th>
+        <th></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for lr in completed %}
+      <tr>
+
+        <!-- Patient -->
+        <td>{{ lr.patient.display_name }}</td>
+
+        <!-- Tests -->
+        <td class="text-dim">
+          {% for t in lr.tests.all %}
+            {{ t.test.name }}{% if not forloop.last %}, {% endif %}
+          {% empty %}
+            <span class="text-muted">No tests</span>
+          {% endfor %}
+        </td>
+
+        <!-- Tags (FIXED - NO DUPLICATES + GREEN BADGES) -->
+        <td>
+          {% for tag in lr.tags %}
+            <span class="badge b-green">{{ tag }}</span>
+          {% empty %}
+            <span class="text-muted">No tags</span>
+          {% endfor %}
+        </td>
+
+        <!-- Ordered -->
+        <td class="text-xs text-muted">
+          {{ lr.created_at|date:"d M, H:i" }}
+        </td>
+
+        <!-- Completed -->
+        <td class="text-xs text-muted">
+          {{ lr.completed_at|date:"d M, H:i" }}
+        </td>
+
+        <!-- Action -->
+        <td>
+          <a href="{% url 'print_lab_results' lr.id %}"
+             target="_blank"
+             class="btn btn-ghost btn-xs">
+            🖨 Print
+          </a>
+        </td>
+
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
   {% endif %}
+
 </div>
 
 {% endblock %}

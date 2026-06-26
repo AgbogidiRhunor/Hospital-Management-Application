@@ -166,17 +166,58 @@ function mkDoctorSearch(inputId,dropId,onSelect,getDtype,getSpec){
 }
 
 /* ── Bed loader ── */
-async function loadBeds(wardElId,gridId,hiddenId,calcFn){
-  const w=document.getElementById(wardElId)?.value;
-  if(!w){document.getElementById(gridId).innerHTML='<span class="text-xs text-muted">Select a ward first</span>';return;}
-  try{ const r=await fetch('/records/api/ward-occupancy/'); const data=await r.json();
-    const wd=data[w]; const grid=document.getElementById(gridId); grid.innerHTML='';
-    for(let b=1;b<=wd.capacity;b++){ const taken=wd.occupied.includes(b); const d=document.createElement('div');
-      d.className='bed'+(taken?' bed-taken':'');
-      d.innerHTML=`<span>🛏</span><span>Bed ${b}</span>`;
-      if(!taken)d.onclick=()=>{ grid.querySelectorAll('.bed').forEach(x=>x.classList.remove('bed-selected')); d.classList.add('bed-selected'); document.getElementById(hiddenId).value=b; if(calcFn)calcFn(); };
-      grid.appendChild(d); }
-  }catch(e){ R.toast('Could not load bed data','err'); }
+async function loadBeds(wardElId, gridId, hiddenId, calcFn){
+  const w = document.getElementById(wardElId)?.value;
+
+  if(!w){
+    document.getElementById(gridId).innerHTML =
+      '<span class="text-xs text-muted">Select a ward first</span>';
+    return;
+  }
+
+  try{
+    const r = await fetch('/records/api/ward-occupancy/', {
+      credentials: 'same-origin'
+    });
+
+    const data = await r.json();
+
+    const wd = data[w];
+
+    if(!wd){
+      document.getElementById(gridId).innerHTML =
+        '<span class="text-xs text-red">Ward data not found</span>';
+      return;
+    }
+
+    const grid = document.getElementById(gridId);
+    grid.innerHTML = '';
+
+    for(let b=1; b<=wd.capacity; b++){
+      const taken = wd.occupied.includes(b);
+      const d = document.createElement('div');
+
+      d.className = 'bed' + (taken ? ' bed-taken' : '');
+      d.innerHTML = `<span>🛏</span><span>Bed ${b}</span>`;
+
+      if(!taken){
+        d.onclick = () => {
+          grid.querySelectorAll('.bed').forEach(x =>
+            x.classList.remove('bed-selected')
+          );
+          d.classList.add('bed-selected');
+          document.getElementById(hiddenId).value = b;
+          if(calcFn) calcFn();
+        };
+      }
+
+      grid.appendChild(d);
+    }
+
+  }catch(e){
+    console.error(e);
+    R.toast('Could not load bed data','err');
+  }
 }
 
 /* ── Availability toggle ── */

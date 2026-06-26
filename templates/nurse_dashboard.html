@@ -1,116 +1,225 @@
 {% extends "base.html" %}
 {% load hp_tags %}
 {% block title %}Nurse — Rhudesi{% endblock %}
-{% block logo_suffix %}Nursing{% endblock %}
-{% block page_title %}Vitals Queue{% endblock %}
-{% block nav %}
-<a href="{% url 'nurse_dashboard' %}" class="sb-link on"><span class="sb-link-ico">📋</span>Vitals Queue <span class="badge b-teal" style="margin-left:auto">{{ visits|length }}</span></a>
-<a href="{% url 'ward_dashboard' %}" class="sb-link"><span class="sb-link-ico">🛏</span>Ward</a>
-<a href="{% url 'nurse_history' %}" class="sb-link"><span class="sb-link-ico">📂</span>History</a>
-{% endblock %}
-{% block topbar_widgets %}
-<div style="display:flex;align-items:center;gap:8px">
-  <span class="txt-xs txt-dim">Vitals Nurse</span>
-  <label class="tog"><input type="checkbox" id="togVitals" {% if nurse.is_vital_signs_nurse %}checked{% endif %} onchange="toggleField('is_vital_signs_nurse',this)"><div class="tog-track"></div><div class="tog-dot"></div></label>
-  <span class="txt-xs txt-dim">Available</span>
-  <label class="tog"><input type="checkbox" id="togAvail" {% if nurse.is_available %}checked{% endif %} onchange="toggleField('is_available',this)"><div class="tog-track"></div><div class="tog-dot"></div></label>
-</div>
-{% endblock %}
-{% block content %}
-<div class="tabs">
-  <div class="tab on" data-tabs="nu" data-tab="nuQ">Queue <span class="tab-ct">{{ visits|length }}</span></div>
-  <div class="tab" data-tabs="nu" data-tab="nuH">Recent</div>
-</div>
+{% block logo_sub %}Nursing{% endblock %}
+{% block role_label %}Nurse{% endblock %}
 
-<div id="nuQ" data-group="nu" class="panel on">
-  {% if not visits %}
-  <div class="card"><div style="padding:52px;text-align:center">
-    <div style="font-size:2rem;margin-bottom:8px">📋</div>
-    <div style="font-weight:700;color:var(--text);margin-bottom:4px">No patients waiting</div>
-    <div style="font-size:.82rem;color:var(--text3)">Patients who have paid will appear here for vitals</div>
-  </div></div>
-  {% endif %}
-  {% for v in visits %}
-  <div class="vc">
-    <div class="vc-h" onclick="C.toggle('nb{{ v.id }}')">
-      <div class="vc-num">{{ v.queue_number }}</div>
-      <div class="vc-info">
-        <div class="vc-name">{{ v.patient.display_name }}
-          <span class="badge {% if v.vitals %}b-teal{% else %}b-amber{% endif %}">{% if v.vitals %}Vitals Done{% else %}Awaiting{% endif %}</span>
-        </div>
-        <div class="vc-meta">
-          {% if v.patient.date_of_birth %}<span>{{ v.patient.date_of_birth|age }}yr</span><span>·</span>{% endif %}
-          <span>{{ v.patient.get_gender_display|default:"—" }}</span>
-          <span>·</span><span>Dr. {{ v.doctor.get_full_name|default:v.doctor.username }}</span>
-        </div>
+{% block nav %}
+<a href="{% url 'nurse_dashboard' %}" class="sb-item active">
+  <span class="sb-icon">👥</span> Patients
+  {% if waiting_count %}<span class="sb-badge">{{ waiting_count }}</span>{% endif %}
+</a>
+<a href="{% url 'ward_dashboard' %}" class="sb-item">
+  <span class="sb-icon">🛏</span> Ward
+</a>
+<a href="{% url 'nurse_history' %}" class="sb-item">
+  <span class="sb-icon">📂</span> History
+</a>
+{% endblock %}
+
+{% block page_title %}Patient Queue{% endblock %}
+
+{% block topbar_widgets %}
+<div class="flex items-center gap-2">
+  <span class="text-xs text-muted">Vital Signs Nurse</span>
+  <label class="toggle" title="Toggle vital-signs duty">
+    <input type="checkbox" id="togVsn" {% if nurse.is_vital_signs_nurse %}checked{% endif %}
+      onchange="toggleField('is_vital_signs_nurse', this)">
+    <div class="toggle-track"></div>
+    <div class="toggle-dot"></div>
+  </label>
+</div>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+{% if not visits %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">👥</div>
+    <div class="empty-title">No patients waiting</div>
+    <div class="empty-sub">Patients will appear here once their consultation fee has been confirmed by the accountant.</div>
+  </div>
+</div>
+{% else %}
+
+<div class="flex-col" style="gap:10px">
+{% for v in visits %}
+<div class="visit-card" id="vc{{ v.id }}">
+  <div class="vc-header" onclick="toggleVc('{{ v.id }}')">
+    <div class="vc-queue">{{ v.queue_number|default:"—" }}</div>
+    <div class="vc-info">
+      <div class="vc-name">
+        {{ v.patient.display_name }}
+        {% if v.patient.blood_group %}<span class="badge b-red" style="font-size:.6rem">{{ v.patient.blood_group }}</span>{% endif %}
+        {% if v.patient.allergies %}<span class="badge b-amber" style="font-size:.6rem">⚠ Allergies</span>{% endif %}
+        <span class="badge {% if v.status == 'vitals' %}b-blue{% else %}b-amber{% endif %}">
+          <span class="badge-dot"></span>{{ v.get_status_display }}
+        </span>
       </div>
-      <button class="btn btn-primary btn-sm">{% if v.vitals %}Update Vitals{% else %}Take Vitals{% endif %}</button>
+      <div class="vc-meta">
+        {% if v.patient.date_of_birth %}<span>{{ v.patient.date_of_birth|age }}yr</span><span class="vc-meta-dot"></span>{% endif %}
+        {% if v.patient.gender %}<span>{{ v.patient.get_gender_display }}</span><span class="vc-meta-dot"></span>{% endif %}
+        <span>Dr. {{ v.doctor.display_name|default:"Unassigned" }}</span>
+        <span class="vc-meta-dot"></span>
+        <span>{{ v.created_at|date:"d M, H:i" }}</span>
+      </div>
     </div>
-    <div class="vc-body {% if not v.vitals %}{% else %}hidden{% endif %}" id="nb{{ v.id }}">
-      <div class="g4 mt-1" style="gap:8px">
-        <div class="fg mb-1"><label class="lbl">BP (mmHg)</label><input class="inp" id="bp{{ v.id }}" placeholder="120/80" value="{{ v.vitals.blood_pressure|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">Pulse (bpm)</label><input class="inp" type="number" id="pr{{ v.id }}" placeholder="72" value="{{ v.vitals.pulse_rate|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">Temp (°C)</label><input class="inp" type="number" id="tp{{ v.id }}" step="0.1" placeholder="36.5" value="{{ v.vitals.temperature|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">SpO₂ (%)</label><input class="inp" type="number" id="os{{ v.id }}" placeholder="98" value="{{ v.vitals.oxygen_saturation|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">Resp (/min)</label><input class="inp" type="number" id="rr{{ v.id }}" placeholder="18" value="{{ v.vitals.respiratory_rate|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">Weight (kg)</label><input class="inp" type="number" id="wt{{ v.id }}" step="0.1" placeholder="70" value="{{ v.vitals.weight|default:'' }}" oninput="calcBmi({{ v.id }})"></div>
-        <div class="fg mb-1"><label class="lbl">Height (cm)</label><input class="inp" type="number" id="ht{{ v.id }}" placeholder="170" value="{{ v.vitals.height|default:'' }}" oninput="calcBmi({{ v.id }})"></div>
-        <div class="fg mb-1"><label class="lbl">BMI</label><input class="inp" id="bm{{ v.id }}" readonly style="background:var(--surface3)" value="{{ v.vitals.bmi|default:'' }}"></div>
-        <div class="fg mb-1"><label class="lbl">Pain (0–10)</label><input class="inp" type="number" id="pl{{ v.id }}" min="0" max="10" placeholder="0" value="{{ v.vitals.pain_level|default:'' }}"></div>
-      </div>
-      <div class="fg mt-1"><label class="lbl">Nurse Note</label><textarea class="inp" id="nn{{ v.id }}" rows="2" placeholder="Observations, additional comments…">{{ v.vitals.nurse_note|default:'' }}</textarea></div>
-      <div class="flex justify-b items-c mt-2">
-        <span class="txt-xs txt-muted">{% if v.vitals %}Last: {{ v.vitals.updated_at|date:"d M, H:i" }}{% endif %}</span>
-        <button class="btn btn-primary btn-sm" onclick="submitVitals({{ v.id }})">Submit → Send to Doctor</button>
-      </div>
+    <div class="flex items-center gap-2 flex-shrink-0" onclick="event.stopPropagation()">
+      {% if v.vitals %}
+      <span class="badge b-teal" style="font-size:.65rem">✓ Vitals done</span>
+      {% endif %}
+      <svg id="vch{{ v.id }}" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--text-muted);transition:transform .2s">
+        <path d="M3 5l4 4 4-4"/>
+      </svg>
     </div>
   </div>
-  {% endfor %}
-</div>
 
-<div id="nuH" data-group="nu" class="panel">
-  {% if not history %}
-  <div class="card"><div style="padding:40px;text-align:center;color:var(--text3);font-size:.83rem">No recent history</div></div>
-  {% else %}
-  <div class="card"><div class="tbl-wrap"><table>
-    <thead><tr><th>#</th><th>Patient</th><th>Doctor</th><th>Status</th><th>Date</th></tr></thead>
-    <tbody>{% for v in history %}<tr>
-      <td class="mono txt-muted">{{ v.queue_number }}</td>
-      <td class="fw-7">{{ v.patient.display_name }}</td>
-      <td class="txt-dim txt-sm">Dr. {{ v.doctor.get_full_name|default:v.doctor.username }}</td>
-      <td><span class="badge {% if v.status == 'completed' %}b-teal{% else %}b-blue{% endif %}">{{ v.get_status_display }}</span></td>
-      <td class="txt-xs txt-muted">{{ v.updated_at|date:"d M, H:i" }}</td>
-    </tr>{% endfor %}</tbody>
-  </table></div></div>
-  {% endif %}
+  <div class="vc-body" id="vcb{{ v.id }}">
+
+    {% if v.patient.allergies %}
+    <div class="alert a-warn" style="margin:10px 0">
+      <span class="alert-icon">⚠</span>
+      <div><strong>Allergies:</strong> {{ v.patient.allergies }}</div>
+    </div>
+    {% endif %}
+
+    {% if v.chief_complaint %}
+    <div class="alert a-info" style="margin:10px 0">
+      <span class="alert-icon">📋</span>
+      <div><strong>Chief Complaint:</strong> {{ v.chief_complaint }}</div>
+    </div>
+    {% endif %}
+
+    {% if v.vitals %}
+    <div class="section-label">Recorded Vitals</div>
+    <div class="vitals-grid">
+      {% if v.vitals.blood_pressure %}<div class="vital-item"><div class="vital-label">BP</div><div class="vital-value">{{ v.vitals.blood_pressure }}</div><div class="vital-unit">mmHg</div></div>{% endif %}
+      {% if v.vitals.pulse_rate %}<div class="vital-item"><div class="vital-label">Pulse</div><div class="vital-value">{{ v.vitals.pulse_rate }}</div><div class="vital-unit">bpm</div></div>{% endif %}
+      {% if v.vitals.temperature %}<div class="vital-item"><div class="vital-label">Temp</div><div class="vital-value">{{ v.vitals.temperature }}</div><div class="vital-unit">°C</div></div>{% endif %}
+      {% if v.vitals.respiratory_rate %}<div class="vital-item"><div class="vital-label">RR</div><div class="vital-value">{{ v.vitals.respiratory_rate }}</div><div class="vital-unit">/min</div></div>{% endif %}
+      {% if v.vitals.oxygen_saturation %}<div class="vital-item"><div class="vital-label">SpO₂</div><div class="vital-value">{{ v.vitals.oxygen_saturation }}</div><div class="vital-unit">%</div></div>{% endif %}
+      {% if v.vitals.weight %}<div class="vital-item"><div class="vital-label">Weight</div><div class="vital-value">{{ v.vitals.weight }}</div><div class="vital-unit">kg</div></div>{% endif %}
+      {% if v.vitals.height %}<div class="vital-item"><div class="vital-label">Height</div><div class="vital-value">{{ v.vitals.height }}</div><div class="vital-unit">cm</div></div>{% endif %}
+      {% if v.vitals.bmi %}<div class="vital-item"><div class="vital-label">BMI</div><div class="vital-value">{{ v.vitals.bmi }}</div></div>{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Vitals form -->
+    <div class="section-label" style="margin-top:14px">
+      {% if v.vitals %}Update Vitals{% else %}Record Vitals{% endif %}
+    </div>
+    <div id="vform{{ v.id }}">
+      <div class="grid cols-3" style="gap:10px;margin-bottom:10px">
+        <div class="fg">
+          <label class="label">Blood Pressure</label>
+          <input class="inp" id="vbp{{ v.id }}" placeholder="e.g. 120/80" value="{{ v.vitals.blood_pressure|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">Pulse Rate</label>
+          <input class="inp" id="vpr{{ v.id }}" placeholder="bpm" type="number" value="{{ v.vitals.pulse_rate|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">Temperature</label>
+          <input class="inp" id="vtp{{ v.id }}" placeholder="°C" type="number" step="0.1" value="{{ v.vitals.temperature|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">Resp. Rate</label>
+          <input class="inp" id="vrr{{ v.id }}" placeholder="/min" type="number" value="{{ v.vitals.respiratory_rate|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">SpO₂</label>
+          <input class="inp" id="vso{{ v.id }}" placeholder="%" type="number" max="100" value="{{ v.vitals.oxygen_saturation|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">Weight (kg)</label>
+          <input class="inp" id="vwt{{ v.id }}" placeholder="kg" type="number" step="0.1" value="{{ v.vitals.weight|default:'' }}">
+        </div>
+        <div class="fg">
+          <label class="label">Height (cm)</label>
+          <input class="inp" id="vht{{ v.id }}" placeholder="cm" type="number" value="{{ v.vitals.height|default:'' }}" oninput="calcBMI({{ v.id }})">
+        </div>
+        <div class="fg">
+          <label class="label">BMI <span class="text-muted" style="font-weight:400">(auto)</span></label>
+          <input class="inp mono" id="vbmi{{ v.id }}" placeholder="—" readonly style="background:var(--bg-active)">
+        </div>
+        <div class="fg">
+          <label class="label">Pain Level (0–10)</label>
+          <input class="inp" id="vpn{{ v.id }}" placeholder="0–10" type="number" min="0" max="10" value="{{ v.vitals.pain_level|default:'' }}">
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:10px">
+        <label class="label">Nurse Note</label>
+        <textarea class="inp" id="vnt{{ v.id }}" rows="2" placeholder="Observations, patient complaints, triage notes…">{{ v.vitals.nurse_note|default:'' }}</textarea>
+      </div>
+      <div class="vc-actions">
+        <button class="btn btn-primary btn-sm" onclick="submitVitals({{ v.id }}, this)">
+          {% if v.vitals %}Update &amp; Send to Doctor{% else %}Save &amp; Send to Doctor{% endif %}
+        </button>
+      </div>
+    </div>
+
+  </div>
 </div>
+{% endfor %}
+</div>
+{% endif %}
+
 {% endblock %}
+
 {% block js %}
 <script>
-async function toggleField(field,el){
-  const r=await C.post('/api/toggle-availability/',{field});
-  if(r.status==='ok')C.toast(r.value?'Active':'Inactive','ok');
-  else{C.toast(r.error||'Error','err');el.checked=!el.checked;}
+function toggleVc(id){
+  const body = document.getElementById('vcb'+id);
+  const ch = document.getElementById('vch'+id);
+  const open = body.classList.toggle('open');
+  if(ch) ch.style.transform = open ? 'rotate(180deg)' : '';
 }
-function calcBmi(vid){
-  const w=+document.getElementById('wt'+vid)?.value,h=+document.getElementById('ht'+vid)?.value;
-  if(w&&h){const el=document.getElementById('bm'+vid);if(el)el.value=(w/((h/100)**2)).toFixed(1);}
+
+function calcBMI(vid){
+  const wt = parseFloat(document.getElementById('vwt'+vid)?.value) || 0;
+  const ht = parseFloat(document.getElementById('vht'+vid)?.value) || 0;
+  const bmiEl = document.getElementById('vbmi'+vid);
+  if(wt > 0 && ht > 0 && bmiEl){
+    const bmi = (wt / ((ht / 100) ** 2)).toFixed(1);
+    bmiEl.value = bmi;
+  }
 }
-async function submitVitals(vid){
-  const r=await C.post(`/api/submit-vitals/${vid}/`,{
-    blood_pressure:document.getElementById('bp'+vid)?.value||'',
-    pulse_rate:document.getElementById('pr'+vid)?.value||'',
-    temperature:document.getElementById('tp'+vid)?.value||'',
-    oxygen_saturation:document.getElementById('os'+vid)?.value||'',
-    respiratory_rate:document.getElementById('rr'+vid)?.value||'',
-    weight:document.getElementById('wt'+vid)?.value||'',
-    height:document.getElementById('ht'+vid)?.value||'',
-    bmi:document.getElementById('bm'+vid)?.value||'',
-    pain_level:document.getElementById('pl'+vid)?.value||'',
-    nurse_note:document.getElementById('nn'+vid)?.value||'',
-  });
-  if(r.status==='ok'){C.toast('Vitals submitted — sent to doctor!','ok');setTimeout(()=>location.reload(),400);}
-  else C.toast(r.error,'err');
+
+async function submitVitals(vid, btn){
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  // Auto-calc BMI if height & weight filled
+  calcBMI(vid);
+
+  const data = {
+    blood_pressure:    document.getElementById('vbp'+vid)?.value || '',
+    pulse_rate:        document.getElementById('vpr'+vid)?.value || '',
+    temperature:       document.getElementById('vtp'+vid)?.value || '',
+    respiratory_rate:  document.getElementById('vrr'+vid)?.value || '',
+    oxygen_saturation: document.getElementById('vso'+vid)?.value || '',
+    weight:            document.getElementById('vwt'+vid)?.value || '',
+    height:            document.getElementById('vht'+vid)?.value || '',
+    bmi:               document.getElementById('vbmi'+vid)?.value || '',
+    pain_level:        document.getElementById('vpn'+vid)?.value || '',
+    nurse_note:        document.getElementById('vnt'+vid)?.value || '',
+  };
+
+  const r = await R.post(`/api/submit-vitals/${vid}/`, data);
+  if(r.status === 'ok'){
+    R.toast('Vitals saved — patient moved to doctor queue', 'ok');
+    setTimeout(() => {
+      const card = document.getElementById('vc'+vid);
+      if(card) card.style.opacity = '.4';
+      setTimeout(() => location.reload(), 600);
+    }, 800);
+  } else {
+    R.toast(r.error || 'Error saving vitals', 'err');
+    btn.disabled = false;
+    btn.textContent = 'Save & Send to Doctor';
+  }
 }
 </script>
 {% endblock %}
